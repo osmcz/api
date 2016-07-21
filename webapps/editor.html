@@ -41,6 +41,11 @@ function init_stuff()
 {
   var version = getParameterByName('login'); 
   t = "table";
+
+  if (window.location.protocol == "https:") {
+    https = "https";
+  }
+
   if (version == "openid") {
     t = "openid";
     https = "https";

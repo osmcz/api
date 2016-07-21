@@ -57,7 +57,7 @@ Vagrant.configure(2) do |config|
     frontend.vm.provision "shell", run: "always", inline: <<-EOF
       echo "####################################################[X]#"
       echo "#   Your development instance of OSMCZ API             #"
-      echo "#   is now running at: http://vangard.openstreetmap.cz #"
+      echo "#   is now running at: http://vagrant.openstreetmap.cz #"
       echo "########################################################"
       echo http://vagrant.openstreetmap.cz/table/ping should pong
     EOF

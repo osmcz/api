@@ -102,6 +102,7 @@ sub handler
   }
 
   $user = $ENV{REMOTE_USER};
+  $is_https = $ENV{HTTPS};
 
   openlog('guidepostapi', 'cons,pid', 'user');
 
@@ -113,6 +114,7 @@ sub handler
 #  syslog('info', 'start method:'. $r->method());
 
   my $uri = $r->uri;      # what does the URI (URL) look like ?
+
   &parse_query_string($r);
   &parse_post_data($r);
 
@@ -239,6 +241,10 @@ sub handler
       $r->print("$user is ok");
     } else {
       $r->print("go away $user");
+    }
+  } elsif ($api_request eq "serverinfo") {
+    if (&check_privileged_access()) {
+      $r->print("<pre>".Dumper(\%ENV)."</pre>");
     }
   } else {
     syslog('info', "unknown request: $uri");
@@ -726,6 +732,8 @@ sub output_html
     return Apache2::Const::NOT_FOUND;
   }
 
+  $out .= "<!-- user is $user -->\n";
+
   foreach my $row (@$res) {
     my ($id, $lat, $lon, $url, $name, $attribution, $ref, $note) = @$row;
     $out .= &gp_line($id, $lat, $lon, $url, $name, $attribution, $ref, $note);
@@ -1143,8 +1151,13 @@ sub gp_line()
   @attrs= ("lat", "lon", "ref", "attribution", "note");
 
   my $https = "http";
+
   if ($api_version eq "openid") {
    $https = "https";
+  }
+
+  if ($is_https) {
+    $https = "https";
   }
 
   $out .= "<script>";
@@ -1168,7 +1181,7 @@ sub gp_line()
       $out .= "
   var text = \"" . &delete_button() . "\";
   \$.ajax({
-    url: '" . $https . "://api.openstreetmap.cz/table/isdeleted/" . $id . "',
+    url: '" . $https . "://api.openstreetmap.cz/". $api_version . "/isdeleted/" . $id . "',
     timeout:3000
   })
   .done(function(data) {
@@ -1575,6 +1588,8 @@ sub is_edited
 {
   $out = "";
 
+  $r->content_type('text/plain; charset=utf-8');
+
   my ($what, $id) = @_;
   my $query = "select count() from changes where gp_id=$id and col='$what'";
   @res = $dbh->selectrow_array($query);
@@ -1950,7 +1965,7 @@ sub robot()
     my ($id, $gp_id, $col, $value, $action) = @$row;
     if ($action eq "addtag") {
       syslog('info', "robot added tag: ($id, $gp_id, $col, $value, $action)");
-      my $url = "http://api.openstreetmap.cz/table/approve/" . $id;
+      my $url = "//api.openstreetmap.cz/table/approve/" . $id;
       syslog('info', "robot: get $url");
       my $content = get($url);
       syslog('info', "robot: " . $content);
@@ -1959,7 +1974,7 @@ sub robot()
        my $old_value = get_gp_column_value($gp_id, $col);
        if ($old_value eq "" or $old_value eq "none") {
          syslog('info', "robot adding new value: old is ($old_value) new is ($id, $gp_id, $col, $value, $action)");
-         my $url = "http://api.openstreetmap.cz/table/approve/" . $id;
+         my $url = "//api.openstreetmap.cz/table/approve/" . $id;
          my $content = get($url);
          $r->print("edit returned $content ");
        } else {
