@@ -530,7 +530,7 @@ sub parse_post_data
     } elsif (lc $_ eq "value" ) {
       $post_data{$_} =~ s/[^A-Za-z0-9_ \p{IsLatin}\/,\;]//g;
     } elsif (lc $_ eq "lat" or lc $_ eq "lon") {
-      $post_data{$_} =~ s/[^0-9.]//g;
+      $post_data{$_} =~ s/[^0-9.\-]//g;
     } elsif (lc $_ eq "tag") {
       $post_data{$_} =~ s/[^A-Za-z0-9_: \p{IsLatin},\/]//g;
     } else {
