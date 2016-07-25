@@ -1971,7 +1971,7 @@ sub robot()
     my ($id, $gp_id, $col, $value, $action) = @$row;
     if ($action eq "addtag") {
       syslog('info', "robot added tag: ($id, $gp_id, $col, $value, $action)");
-      my $url = "//api.openstreetmap.cz/table/approve/" . $id;
+      my $url = "http://api.openstreetmap.cz/table/approve/" . $id;
       syslog('info', "robot: get $url");
       my $content = get($url);
       syslog('info', "robot: " . $content);
@@ -1980,7 +1980,7 @@ sub robot()
        my $old_value = get_gp_column_value($gp_id, $col);
        if ($old_value eq "" or $old_value eq "none") {
          syslog('info', "robot adding new value: old is ($old_value) new is ($id, $gp_id, $col, $value, $action)");
-         my $url = "//api.openstreetmap.cz/table/approve/" . $id;
+         my $url = "http://api.openstreetmap.cz/table/approve/" . $id;
          my $content = get($url);
          $r->print("edit returned $content ");
        } else {
