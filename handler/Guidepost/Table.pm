@@ -246,6 +246,12 @@ sub handler
     if (&check_privileged_access()) {
       $r->print("<pre>".Dumper(\%ENV)."</pre>");
     }
+  } elsif ($api_request eq "notify") {
+    if ($r->method() eq "POST") {
+      &notify($post_data{lat}, $post_data{lon}, $post_data{text});
+    } else {
+      $error_result = 400;
+    }
   } else {
     syslog('info', "unknown request: $uri");
     $error_result = 400;
@@ -2000,6 +2006,14 @@ sub login()
   $r->print("or do it <a href='$uri_redirect'>yourself</a></p>");
   $r->print("</body>");
   $r->print("</html>");
+}
+
+################################################################################
+sub notify()
+################################################################################
+{
+  my ($lat, $lon, $text) = @_;
+  syslog('info', "Notification: $lat, $lon, $text");
 }
 
 1;
