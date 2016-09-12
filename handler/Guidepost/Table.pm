@@ -1,5 +1,5 @@
 #
-#   mod_perl handler, gudeposts, part of openstreetmap.cz
+#   mod_perl handler, guideposts, part of openstreetmap.cz
 #   Copyright (C) 2015, 2016 Michal Grezl
 #
 #   This program is free software; you can redistribute it and/or modify
@@ -412,7 +412,8 @@ sub authorized()
     "https://mkyral.mojeid.cz/#0gQJXul3eXh1",
   );
 
-  my $is_ok = ($user ~~ @ok_users);
+#  my $is_ok = ($user ~~ @ok_users);
+  my $is_ok = ($user ne "" and $user ne "anon.openstreetmap.cz");
   my $ok = ($is_ok) ? "ok" : "bad";
 
   syslog('info', "authorized(): " . $user . " is " . $ok . " from " . $remote_ip);
@@ -935,12 +936,14 @@ sub maplinks()
   $out .=  "<span>\n";
   $out .=  "<ul>\n";
 #  $out .=  "<li><a href='http://maps.yahoo.com/#mvt=m&lat=$lat&lon=$lon&mag=6&q1=$lat,$lon'>Yahoo</a>";
-  $out .=  "<li><a href='http://www.openstreetmap.cz/?mlat=$lat&mlon=$lon&zoom=16#map=16/$lat/$lon'>osm.cz</a>";
-  $out .=  "<li><a href='http://www.openstreetmap.org/?mlat=$lat&mlon=$lon&zoom=16#map=16/$lat/$lon'>OSM</a>";
+  $out .=  "<li><a href='https://www.openstreetmap.cz/?mlat=$lat&mlon=$lon&zoom=16#map=16/$lat/$lon'>osm.cz</a>";
+  $out .=  "<li><a href='https://www.openstreetmap.org/?mlat=$lat&mlon=$lon&zoom=16#map=16/$lat/$lon'>osm.org</a>";
+  $out .=  "<li><a href='https://mapy.cz/turisticka?x=$lon&y=$lat&z=18&source=coor&id=$lon%2C$lat'>Mapy.cz</a>";
   $out .=  "<li><a href='https://maps.google.com/maps?ll=$lat,$lon&q=loc:$lat,$lon&hl=en&t=m&z=16'>Google</a>";
   $out .=  "<li><a href='https://www.bing.com/maps/?v=2&cp=$lat~$lon&style=r&lvl=16'>Bing</a>";
-  $out .=  "<li><a href='https://www.mapy.cz/?st=search&fr=loc:".$lat."N ".$lon."E'>Mapy.cz</a>";
-  $out .=  "<li><a href='https://mapy.idnes.cz/#pos=".$lat."P".$lon."P13'>idnes.cz</a>";
+#  $out .=  "<li><a href='https://www.mapy.cz/?st=search&fr=loc:".$lat."N ".$lon."E'>Mapy.cz</a>";
+  $out .=  "<li><a href='http://mapy.idnes.cz/#pos=".$lat."P".$lon."P13'>idnes.cz</a>";
+  $out .=  "<li><a href='https://wego.here.com/?map=$lat,$lon,18,normal'>here.com</a>";
   $out .=  "</ul>\n";
   $out .=  "</span>\n";
 
