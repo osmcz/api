@@ -246,6 +246,8 @@ sub handler
     if (&check_privileged_access()) {
       $r->print("<pre>".Dumper(\%ENV)."</pre>");
     }
+  } elsif ($api_request eq "licenseinfo") {
+    &show_licenses();
   } elsif ($api_request eq "notify") {
     if ($r->method() eq "POST") {
       &notify($post_data{lat}, $post_data{lon}, $post_data{text});
@@ -742,8 +744,8 @@ sub output_html
   $out .= "<!-- user is $user -->\n";
 
   foreach my $row (@$res) {
-    my ($id, $lat, $lon, $url, $name, $attribution, $ref, $note) = @$row;
-    $out .= &gp_line($id, $lat, $lon, $url, $name, $attribution, $ref, $note);
+    my ($id, $lat, $lon, $url, $name, $attribution, $ref, $note, $license) = @$row;
+    $out .= &gp_line($id, $lat, $lon, $url, $name, $attribution, $ref, $note, $license);
     $out .= "\n";
   }
 
@@ -782,7 +784,7 @@ sub output_geojson
   }
 
   foreach my $row (@$res) {
-    my ($id, $lat, $lon, $url, $name, $attribution, $ref, $note, $tags) = @$row;
+    my ($id, $lat, $lon, $url, $name, $attribution, $ref, $note, $license, $tags) = @$row;
 
     my $fixed_lat = looks_like_number($lat) ? $lat : 0;
     my $fixed_lon = looks_like_number($lon) ? $lon : 0;
@@ -841,8 +843,8 @@ sub table_get
   }
 
   foreach my $row (@$res) {
-    my ($id, $lat, $lon, $url, $name, $attribution, $ref, $note) = @$row;
-    $out .= &gp_line($id, $lat, $lon, $url, $name, $attribution, $ref, $note);
+    my ($id, $lat, $lon, $url, $name, $attribution, $ref, $note, $license) = @$row;
+    $out .= &gp_line($id, $lat, $lon, $url, $name, $attribution, $ref, $note, $license);
     $out .=  "</p>\n";
   }
 
@@ -1038,6 +1040,7 @@ sub t()
   if ($s eq "Click to edit...") {return "Klikněte a editujte...";}
   if ($s eq "marked for delete") {return "Označeno pro smazání";}
   if ($s eq "times") {return "krát";}
+  if ($s eq "license") {return "licence";}
 
 #  return  utf8::decode($s);
   return $s;
@@ -1128,7 +1131,7 @@ sub edit_stuff
 sub gp_line()
 ################################################################################
 {
-  my ($id, $lat, $lon, $url, $name, $attribution, $ref, $note) = @_;
+  my ($id, $lat, $lon, $url, $name, $attribution, $ref, $note, $license) = @_;
 
   my $out = "<!-- GP LINE -->";
 
@@ -1155,6 +1158,9 @@ sub gp_line()
   $out .= "<div class='Cell cell_middle'>\n";
 
   $out .= &edit_stuff($id, $lat, $lon, $url, $name, $attribution, $ref, $note);
+
+  $out .= "<br>" . &t("license") . ": $license";
+
   $out .= "</div>";
 
   @attrs= ("lat", "lon", "ref", "attribution", "note");
@@ -1343,6 +1349,12 @@ sub set_by_id()
   my @data = split("_", $id);
   $db_id = $data[1];
   $db_col = $data[0];
+
+  if ($db_col eq 'license') {
+    syslog("info", "set_by_id($id, $val): cannot change license this way");
+    $error_result = 500;
+  }
+
   if ($db_col eq 'lat' or $db_col eq 'lon') {
     $query = "insert into changes (gp_id, col, value, action) values ($db_id, '$db_col', '$val', 'position')";
   } else {
@@ -2017,6 +2029,22 @@ sub notify()
 {
   my ($lat, $lon, $text) = @_;
   syslog('info', "Notification: $lat, $lon, $text");
+}
+
+################################################################################
+sub show_licenses()
+################################################################################
+{
+  my %licenses = ( 
+    'CCBYSA4'=>'Creative Commons Attribution ShareAlike 4.0',
+    'CCBYSA3'=>'Creative Commons Attribution ShareAlike 3.0',
+    'CCBY4'=>'Creative Commons Attribution 4.0',
+    'CCBY3'=>'Creative Commons Attribution 3.0',
+    'CCBYSA2plus'=>'Creative Commons Attribution ShareAlike 2.0 or later ',
+    'CC0'=>'Creative Commons CC0 Waiver',
+    'C'=>'Zákon č. 121/2000 Sb.',
+  );
+  $r->print(encode_json(\%licenses));
 }
 
 1;
