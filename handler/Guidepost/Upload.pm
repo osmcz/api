@@ -245,6 +245,24 @@ sub phase2()
 
 }
 
+sub insert_file
+{
+  my $out = "";
+  ($fn, $tag) = @_;
+
+  open(FILE, "<", "$fn") or die;
+
+  $out .= "<!-- $fn -->\n";
+  $out .= "<$tag>\n";
+  while (<FILE>) {
+    $out .= $_;
+  }
+  close(FILE);
+  $out .= "</$tag>\n";
+
+  return $out;
+}
+
 ################################################################################
 sub generate_html
 ################################################################################
@@ -256,50 +274,21 @@ sub generate_html
   $out .= "  <head>\n";
   $out .= "    <meta charset='utf-8'/>\n";
   $out .= "    <title>openstreetmap.cz upload form</title>\n";
-  $out .= "    <style>\n";
+  $out .= "    <script src='https://ajax.googleapis.com/ajax/libs/jquery/1.9.1/jquery.min.js'></script>";
 
-  while (<STYLE>) {
-    $out .= $_;
-  }
+  $out .= &insert_file("/home/walley/www/api/js/jquery.ui.widget.js"       ,"script");
+  $out .= &insert_file("/home/walley/www/api/js/jquery.knob.js"            ,"script");
+  $out .= &insert_file("/home/walley/www/api/js/jquery.iframe-transport.js","script");
 
+  $out .= &insert_file("/home/walley/www/api/js/jquery.fileupload.js"      ,"script");
+  $out .= &insert_file("/home/walley/www/api/js/jquery.fileupload-ui.js"   ,"script");
+  $out .= &insert_file("/home/walley/www/api/js/script.js"                 ,"script");
 
-  $out .= "<script>\n";
-  while (<JQUERYFILEUPLOADJS>) {
-    $out .= $_;
-  }
-  $out .= "</script>\n";
-  $out .= "<script>\n";
-  while (<JQUERYFILEUPLOADUIJS>) {
-    $out .= $_;
-  }
-  $out .= "</script>\n";
-  $out .= "<script>\n";
-  while (<JQUERYIFRAMETRANSPORTJS>) {
-    $out .= $_;
-  }
-  $out .= "</script>\n";
-  $out .= "<script>\n";
-  while (<JQUERYKNOBJS>) {
-    $out .= $_;
-  }
-  $out .= "</script>\n";
-  $out .= "<script>\n";
-  while (<JQUERYUIWIDGETJS>) {
-    $out .= $_;
-  }
-  $out .= "</script>\n";
-  $out .= "<script>\n";
-  while (<SCRIPTJS>) {
-    $out .= $_;
-  }
-  $out .= "</script>\n";
+  $out .= &insert_file("/home/walley/www/api/html/upload.css.tmpl"         ,"style");
 
-  $out .= "    </style>\n";
   $out .= "  </head>\n";
 
-  while (<BODY>) {
-     $out .= $_;
-  }
+  $out .= &body();
 
   $out .= "</html>\n";
 
@@ -309,112 +298,17 @@ sub generate_html
 
 1;
 
-################################################################################
-################################################################################
-################################################################################
-################################################################################
 
-__STYLE__
-*{
-    margin:0;
-    padding:0;
-}
-
-html{
-    min-height:900px;
-}
-
-a, a:visited {
-    outline:none;
-    color:#389dc1;
-}
-
-a:hover{
-    text-decoration:none;
-}
-
-#upload{
-    padding:5px;
-    border-radius:3px;
-    box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
- overflow:hidden;
-}
-
-#drop{
-    padding: 40px 50px;
-    margin-bottom: 30px;
-    border: 20px solid rgba(0, 0, 0, 0);
-    border-radius: 3px;
-    text-align: center;
-    text-transform: uppercase;
-
-}
-
-#drop a{
-    background-color:#007a96;
-    padding:12px 26px;
-    color:#fff;
-    font-size:14px;
-    border-radius:2px;
-    cursor:pointer;
-    display:inline-block;
-    margin-top:12px;
-    line-height:1;
-}
-
-#drop a:hover{
-    background-color:#0986a3;
-}
-
-#drop input{
-   display:none;
-}
-
-#upload ul li{
-white-space:nowrap;
-    border-top:1px solid black;
-    border-bottom:1px solid black;
-}
-
-#upload ul li input{
-    display: none;
-}
-
-#upload ul li canvas{
-    top: 15px;
-    left: 32px;
-}
-
-#upload ul li span{
-    width: 15px;
-    height: 12px;
-    top: 34px;
-    right: 33px;
-    cursor:pointer;
-}
-
-#upload ul li.working span{
-    height: 16px;
-}
-
-#upload ul li.error p{
-    color:red;
-}
-
-.container::after {
-    content:"";
-    display:table;
-    clear:both;
-}
-
-__BODY__
+sub body
+{
+my $out = "
   <body>
-    <form id="upload" method="post" action="http://api.openstreetmap.cz/upload/phase1/" enctype="multipart/form-data">
-      <input type="text" name="author" value="autor">
-      <div id="drop">
+    <form id='upload' method='post' action='http://api.openstreetmap.cz/upload/phase1/' enctype='multipart/form-data'>
+      <input type='text' name='author' value='autor'>
+      <div id='drop'>
         Drop Here
-        <a>Browse</a>
-        <input type="file" name="upl" multiple />
+        <a>Browse b</a>
+        <input type='file' name='upl' multiple />
       </div>
 
       <ul>
@@ -423,4 +317,12 @@ __BODY__
 
     </form>
   </body>
+";
+return $out;
+}
+
+################################################################################
+################################################################################
+################################################################################
+################################################################################
 
