@@ -9,7 +9,7 @@ Vagrant.configure(2) do |config|
 
     frontend.vm.network "forwarded_port", guest: 80, host: 5000
 
-    frontend.vm.synced_folder "../../", "/vagrant", type: "rsync", rsync__exclude: [".git/", "img/", "upload/tmp/*"]
+    frontend.vm.synced_folder "../../", "/vagrant", type: "rsync", rsync__exclude: [".git", "img", "upload/tmp"]
 
     frontend.vm.network "private_network", ip: "192.168.242.51"
 
@@ -25,6 +25,10 @@ Vagrant.configure(2) do |config|
                perl-Devel-StackTrace perl-Test-Most perl-Type-Tiny perl-HTML-Parser perl-HTML-Tagset perl-Socket6 \
                perl-Sys-Syslog perl-libwww-perl perl-Geo-Inverse"
 
+    # VurtualBox guest additions for sync
+    config.vbguest.auto_update = false
+
+    frontend.vm.synced_folder "../../handler/Guidepost/", "/var/www/api/handler/Guidepost/"
 
     # Install unpackaged perl modules
     frontend.vm.provision "shell", inline: <<-EOF
@@ -61,7 +65,7 @@ Vagrant.configure(2) do |config|
 
     # start apache
     frontend.vm.provision "shell", run: "always",
-      inline: "service httpd start"
+      inline: "/bin/systemctl start httpd.service"
 
     frontend.vm.provision "shell", run: "always", inline: <<-EOF
       echo "#########################################################"
