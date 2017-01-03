@@ -56,6 +56,8 @@ use File::Copy;
 use Encode;
 
 use Image::ExifTool;
+#use Image::ExifTool::Location;
+
 use LWP::Simple;
 
 use Geo::Inverse;
@@ -192,9 +194,12 @@ sub exif
   syslog("info", "exif: " . $image);
   my $exifTool = new Image::ExifTool;
   $exifTool->Options(Unknown => 1);
+  $exifTool->Options(CoordFormat => '%.6f');
+
   my $info = $exifTool->ImageInfo($image );
   my $group = '';
   my $tag;
+
   foreach $tag ($exifTool->GetFoundTags('Group0')) {
     if ($group ne $exifTool->GetGroup($tag)) {
       $group = $exifTool->GetGroup($tag);
@@ -220,16 +225,21 @@ sub exif
 
   if (defined $exif{"Composite"}{"GPS Latitude"})  {
     syslog("info", "yes");
-    $gps_lat = $exif{"Composite"}{"GPS Latitude"};
+    my $exifgps_lat = $exif{"Composite"}{"GPS Latitude"};
+    my @ea = split(" ", $exifgps_lat);
+    $gps_lat = (($ea[1] eq "N")?"":"-") . $ea[0];
+    syslog("info", "yes ". $ea[0] ." ". $ea[1] ." ". $gps_lat);
   } else {
     syslog("info", "no");
-    $gps_lat = "cc";
+    $gps_lat = "nope";
   }
 
   if (defined $exif{Composite}{"GPS Longitude"})  {
     $gps_lon = $exif{Composite}{"GPS Longitude"};
+    my @ea = split(" ", $exifgps_lon);
+    $gps_lon = (($ea[1] eq "E")?"":"-") . $ea[0];
   } else {
-    $gps_lon = "";
+    $gps_lon = "nope";
   }
 
   return ($gps_lat, $gps_lon, $gps_time);
