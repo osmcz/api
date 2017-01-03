@@ -23,8 +23,7 @@ use utf8;
 use JSON;
 
 use Apache2::Connection ();
-#use Apache2::Const -compile => qw(MODE_READBYTES);
-use Apache2::Const -compile => qw(OK SERVER_ERROR NOT_FOUND);
+use Apache2::Const -compile => qw(OK SERVER_ERROR NOT_FOUND MODE_READBYTES);
 use Apache2::Filter ();
 use Apache2::Reload;
 use Apache2::Request;
@@ -34,8 +33,7 @@ use Apache2::URI ();
 
 use APR::Brigade ();
 use APR::Bucket ();
-#use APR::Const    -compile => qw(SUCCESS BLOCK_READ);
-use APR::Const -compile => qw(URI_UNP_REVEALPASSWORD);
+use APR::Const -compile => qw(URI_UNP_REVEALPASSWORD SUCCESS BLOCK_READ);
 use APR::URI ();
 use constant IOBUFSIZE => 8192;
 
@@ -49,7 +47,7 @@ use Geo::JSON::Point;
 use Geo::JSON::Feature;
 use Geo::JSON::FeatureCollection;
 
-use Sys::Syslog;                        # all except setlogsock()
+use Sys::Syslog;
 use HTML::Entities;
 
 use File::Copy;
@@ -113,7 +111,7 @@ sub handler
 
 #  syslog('info', 'start method:'. $r->method());
 
-  my $uri = $r->uri;      # what does the URI (URL) look like ?
+  my $uri = $r->uri;
 
   &parse_query_string($r);
   &parse_post_data($r);
@@ -396,7 +394,8 @@ sub check_privileged_access()
 ################################################################################
 {
   my $ok = subnet_matcher qw(
-    185.93.61.1/32
+    185.93.61.0/24
+    185.93.60.0/22
     195.113.123.0/24
     31.31.78.232/32
 
@@ -530,7 +529,7 @@ sub parse_post_data
 
   #sanitize
   foreach (sort keys %post_data) {
-    syslog('info', "postdata before " . $_ . "=" . $post_data{$_});
+    syslog('info', "postdata before:" . $_ . "=" . $post_data{$_});
     $post_data{$_} = &smartdecode($post_data{$_});
     $post_data{$_} =~ s/\+/ /g;
     $post_data{$_} =~ s/\%2F/\//g;
@@ -547,7 +546,7 @@ sub parse_post_data
     } else {
       $post_data{$_} =~ s/[^A-Za-z0-9 ]//g;
     }
-    syslog('info', "postdata after" . $_ . "=" . $post_data{$_});
+    syslog('info', "postdata after:" . $_ . "=" . $post_data{$_});
   }
 }
 
@@ -1370,7 +1369,12 @@ sub set_by_id()
   }
 
   syslog('info', $remote_ip . " wants to change id:$db_id, '$db_col' to '$val'");
-  my $sth = $dbh->prepare($query);
+  my $sth = $dbh->prepare($query) or do {
+    syslog('info', "prepare error, query is:" . $query);
+    $error_result = 500;
+    return;
+  };
+
   my $res = $sth->execute();
 #  my $res = $dbh->do($query, undef, $db_id, $db_col, $val);
 
@@ -2045,14 +2049,24 @@ sub show_licenses()
 {
   my $out = "";
   my $i;
-  my %licenses = ( 
+  my %licenses = (
     'CCBYSA4'=>'Creative Commons Attribution ShareAlike 4.0',
     'CCBYSA3'=>'Creative Commons Attribution ShareAlike 3.0',
     'CCBY4'=>'Creative Commons Attribution 4.0',
     'CCBY3'=>'Creative Commons Attribution 3.0',
-    'CCBYSA2plus'=>'Creative Commons Attribution ShareAlike 2.0 or later ',
+    'CCBYSA2plus'=>'Creative Commons Attribution ShareAlike 2.0 or later',
     'CC0'=>'Creative Commons CC0 Waiver',
     'C'=>'Zákon č. 121/2000 Sb.',
+  );
+
+  my %license_sites = (
+    'CCBYSA4'=>'https://creativecommons.org/licenses/by-sa/4.0/',
+    'CCBYSA3'=>'https://creativecommons.org/licenses/by-sa/3.0/',
+    'CCBY4'=>'https://creativecommons.org/licenses/by/4.0/',
+    'CCBY3'=>'https://creativecommons.org/licenses/by/3.0/',
+    'CCBYSA2plus'=>'https://creativecommons.org/licenses/by-sa/2.0/',
+    'CC0'=>'https://creativecommons.org/choose/zero/',
+    'C'=>'https://portal.gov.cz/app/zakony/zakonPar.jsp?idBiblio=49278&nr=121~2F2000&rpp=15#local-content',
   );
 
   if ($OUTPUT_FORMAT eq "html") {
@@ -2061,7 +2075,7 @@ sub show_licenses()
     $out .= "<table border='1'>\n";
     foreach $i (keys %licenses) {
       $out .= "<tr><td>";
-      $out .= $licenses{$i};
+      $out .= "<a href='".$license_sites{$i}."'>" . $licenses{$i} ."</a>";
       $out .= "</td></tr>\n";
     }
     $out .= "</table>\n";
@@ -2072,7 +2086,8 @@ sub show_licenses()
   } elsif ($OUTPUT_FORMAT eq "geojson") {
     $error_result = 400;
   } elsif ($OUTPUT_FORMAT eq "json") {
-    $r->print(encode_json(\%licenses));
+    %out = ("licenses" => \%licenses, "sites" => \%license_sites);
+    $r->print(encode_json(\%out));
   } elsif ($OUTPUT_FORMAT eq "kml") {
     $error_result = 400;
   }
