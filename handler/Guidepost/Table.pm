@@ -217,7 +217,7 @@ sub handler
 #    &add_tags($uri_components[4], $uri_components[5]);
   } elsif ($api_request eq "tags") {
     if ($r->method() eq "GET") {
-      my $out = &get_tags($uri_components[3]);
+      my $out = &get_tags($uri_components[4]);
       $r->print($out);
     } elsif ($r->method() eq "DELETE") {
       &delete_tags($uri_components[3], $uri_components[4]);
@@ -650,12 +650,23 @@ sub hashtag
 {
   my ($tag) = @_;
   my ($k, $v) = split(":", $tag);
+  my $query = "";
 
-  $query = "select guidepost.* from guidepost,tags where guidepost.id=tags.gp_id and tags.k='$k' and tags.v='$v'";
+  if ($k ne "" && $v ne "") {
+    $query = "select guidepost.* from guidepost,tags where guidepost.id=tags.gp_id and tags.k='$k' and tags.v='$v'";
+  } elsif ($k ne "" && $v eq "") {
+    $query = "select guidepost.* from guidepost,tags where guidepost.id=tags.gp_id and tags.k='$k'";
+  } elsif ($k eq "" && $v ne "") {
+    $query = "select guidepost.* from guidepost,tags where guidepost.id=tags.gp_id and tags.v='$v'";
+  } else {
+    syslog("info", "hashtag bad? ($tag)");
+  }
 
   if ($BBOX) {
     $query .= " and ".&add_bbox();
   }
+
+  syslog("info", "hashtag query:" . $query . "(k:v)" . "($k:$v)");
 
   $error_result = &output_data($query);
 }
@@ -735,12 +746,11 @@ sub output_html
 
   my $out = &page_header(\@s,\@l);
 
-  $res = $dbh->selectall_arrayref($query);
-  if (!$res) {
+  $res = $dbh->selectall_arrayref($query) or do {
     syslog("info", "output_html dberror" . $DBI::errstr);
-    $error_status = 500;
+    $error_result = 500;
     return 500;
-  }
+  };
 
   my $num_elements = @$res;
 
@@ -843,11 +853,13 @@ sub table_get
   my $to_gp = looks_like_number($pt) ? $pt : 0;
 
   my $query = "select * from guidepost LIMIT " . ($to_gp - $from_gp) . " OFFSET $from_gp";
-  $res = $dbh->selectall_arrayref($query);
-  if (!$res) {
-    syslog("info", "output_html dberror" . $DBI::errstr);
-    $out = "DB error";
-  }
+
+  $res = $dbh->selectall_arrayref($query) or do {
+    syslog("info", "table_get dberror" . $DBI::errstr);
+    $out = "table_get: DB error";
+    $error_result = 500;
+    return 500;
+  };
 
   foreach my $row (@$res) {
     my ($id, $lat, $lon, $url, $name, $attribution, $ref, $note, $license) = @$row;
@@ -1370,7 +1382,7 @@ sub set_by_id()
 
   syslog('info', $remote_ip . " wants to change id:$db_id, '$db_col' to '$val'");
   my $sth = $dbh->prepare($query) or do {
-    syslog('info', "prepare error, query is:" . $query);
+    syslog('info', "500: prepare error, query is:" . $query);
     $error_result = 500;
     return;
   };
@@ -1379,7 +1391,7 @@ sub set_by_id()
 #  my $res = $dbh->do($query, undef, $db_id, $db_col, $val);
 
   if (!$res) {
-    syslog("info", "set_by_id($id, $val): dbi error " . $DBI::errstr);
+    syslog("info", "500: set_by_id($id, $val): dbi error " . $DBI::errstr);
     $error_result = 500;
   } else {
     &auto_approve();
@@ -1403,7 +1415,7 @@ sub move_photo()
   my $res = $dbh->do($query, undef, $id, $lat, $lon);
 
   if ($res < 1) {
-    syslog("info", "move_photo($id, $lat, $lon): dbi error " . $DBI::errstr);
+    syslog("info", "500: move_photo($id, $lat, $lon): dbi error " . $DBI::errstr);
     $error_result = 500;
   } else {
     syslog("info", "move_photo($id, $lat, $lon): done");
@@ -1628,7 +1640,7 @@ sub is_edited
   @res = $dbh->selectrow_array($query);
 
   if (!@res) {
-    syslog("info", "is_edited dberror " . $DBI::errstr . " q: $query");
+    syslog("info", "500: is_edited dberror " . $DBI::errstr . " q: $query");
     $error_result = 500;
     return;
   }
@@ -1678,12 +1690,10 @@ sub db_do
 {
   my ($query) = @_;
 
-  $res = $dbh->do($query);
-
-  if (!$res) {
-    syslog("info", "db_do(): dberror:" . $DBI::errstr . " q: $query");
+  $res = $dbh->do($query) or do {
+    syslog("info", "500: db_do(): dberror:" . $DBI::errstr . " q: $query");
     $error_result = 500;
-  }
+  };
 }
 
 ################################################################################
@@ -1782,15 +1792,13 @@ sub remove
   syslog('info', $remote_ip . " wants to remove $id");
   $query = "insert into changes (gp_id, action) values ($id, 'remove')";
   my $sth = $dbh->prepare($query);
-  my $res = $sth->execute();
-  if (!$res) {
-    syslog("info", "remove db error " . $DBI::errstr . " $query");
+  my $res = $sth->execute() or do {
+    syslog("info", "500: remove db error " . $DBI::errstr . " $query");
     $error_result = 500;
     return;
-  } else {
-    if (&check_privileged_access()) {&auto_approve();}
-  }
+  };
 
+  if (&check_privileged_access()) {&auto_approve();}
 }
 
 ################################################################################
@@ -1832,12 +1840,11 @@ sub get_tags()
   my @out_array;
   my $query = "select * from tags where gp_id=$id";
 
-  my $res = $dbh->selectall_arrayref($query);
-  if (!$res) {
+  my $res = $dbh->selectall_arrayref($query) or do {
     syslog("info", "get_tags dberror " . $DBI::errstr . " q: $query");
-    $out = "DB error";
+    $out = "get_tags: DB error";
     return $out;
-  }
+  };
 
 #  syslog("info", "get_tags($id):" . $query);
 
@@ -1857,6 +1864,24 @@ sub get_tags()
 }
 
 ################################################################################
+sub tag_exists()
+################################################################################
+{
+ my ($id, $k, $v) = @_;
+  my $query = "select * from tags where gp_id=$id and k='".$k."' and v='".$v."'";
+
+  my $res = $dbh->selectall_arrayref($query) or do {
+    syslog("info", "tag_exists  dberror " . $DBI::errstr . " q: $query");
+    return 1;
+  };
+
+  $count = scalar @{ $res };
+
+  syslog("info", "tag_exists q: $query c: $count");
+  return $count;
+}
+
+################################################################################
 sub auto_approve()
 ################################################################################
 {
@@ -1872,6 +1897,11 @@ sub add_tags()
   my ($id, $tag) = @_;
   my ($k, $v) = split(":", $tag);
 
+  if (&tag_exists($id, $k, $v)) {
+    $error_result = 400;
+    return;
+  }
+
   if ($k eq "" and $v eq "") {
     $error_result = 400;
     return;
@@ -1879,19 +1909,15 @@ sub add_tags()
 
   $query = "insert into changes (gp_id, col, value, action) values ($id, '$k', '$v', 'addtag')";
 
-#  syslog("info", "add_tags($tag):" . $query);
   syslog('info', $remote_ip . " wants to add tag ($k:$v) for id:$id");
 
   my $sth = $dbh->prepare($query);
-  my $res = $sth->execute();
-
-  if (!$res) {
-    syslog("info", "add_tags($tag): dbi error " . $DBI::errstr);
+  my $res = $sth->execute() or do {
+    syslog("info", "500: add_tags($tag): dbi error " . $DBI::errstr);
     $error_result = 500;
-  } else {
-    &auto_approve();
-  }
+  };
 
+  &auto_approve();
 }
 
 ################################################################################
@@ -1914,7 +1940,7 @@ sub delete_tags()
   my $res = $sth->execute();
 
   if (!$res) {
-    syslog("info", "add_tags($tag): dbi error " . $DBI::errstr);
+    syslog("info", "500: add_tags($tag): dbi error " . $DBI::errstr);
     $error_result = 500;
   } else {
     if (&check_privileged_access()) {&auto_approve();}
@@ -1990,7 +2016,7 @@ sub robot()
   $res = $dbh->selectall_arrayref($query);
   if (!$res) {
     $error_result = 500;
-    syslog('info', "robot error: $DBI::errstr");
+    syslog('info', "500: robot error: $DBI::errstr");
     return Apache2::Const::SERVER_ERROR;
   };
 
