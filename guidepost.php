@@ -57,7 +57,7 @@ function page_header()
   print "  <script src='jquery-ui.min.js'></script>\n";
   print "  <script language='javascript' type='text/javascript' src='upload.js'></script>\n";
   print "  <link href='upload.css' rel='stylesheet' type='text/css'/>\n";
-  
+
 }
 
 
@@ -71,9 +71,9 @@ function page_footer()
   print "</html>\n";
 }
 
-################################################################################ 
+################################################################################
 function show_upload_dialog()
-################################################################################ 
+################################################################################
 {
 
   $PHP_SELF = $_SERVER['PHP_SELF'];
@@ -124,7 +124,7 @@ $title_help = "Pokud víte že má obrázek Exif souřadnice, můžete nechat la
 </form>
 </div>
 
-<table><tr> 
+<table><tr>
   <td><div id='upload_div'><p style='border:3px solid #aaaaaa;' id='upload_process'>Uploading...</p></div></td>
   <td><iframe id='upload_target' name='upload_target' src='#' style='width:200px;height:30px;border:3px solid #aaaaaa;'></iframe></td>
 </tr></table>
@@ -134,9 +134,9 @@ $title_help = "Pokud víte že má obrázek Exif souřadnice, můžete nechat la
 }
 
 
-################################################################################ 
+################################################################################
 function show_iphone_upload_dialog()
-################################################################################ 
+################################################################################
 {
 
   $PHP_SELF = $_SERVER['PHP_SELF'];
@@ -171,7 +171,7 @@ function show_iphone_upload_dialog()
     }
   }
 
-  function send_data() 
+  function send_data()
   {
     var boundary = this.generateBoundary();
     var xhr = new XMLHttpRequest;
@@ -235,23 +235,109 @@ $title_help = "Pokud má obrázek Exif souřadnice, můžete nechat lat, lon na 
 }
 
 ################################################################################
-function insert_to_db($lat, $lon, $url ,$file, $author, $ref, $note, $license)
+function insert_to_db($lat, $lon, $url ,$file, $author, $ref, $note, $license, $gp_type)
 ################################################################################
 {
   global $global_error_message;
-  $database = new SQLite3('guidepost');;
+  $database = new SQLite3('guidepost');
   if (!$database) {
     $global_error_message = (file_exists('guidepost')) ? "Impossible to open, check permissions" : "Impossible to create, check permissions";
     return 0;
   }
   $q = "insert into guidepost values (NULL, '$lat', '$lon', '$url', '$file', '$author', '$ref', '$note', '$license')";
-  $query = $database->exec($q);
-  if (!$query) {
-    $global_error_message = "Error: $query_error"; 
+
+  if (!$database->exec($q)) {
+    $global_error_message = "Error: " . $database->lastErrorMsg();
+    printdebug("insert_to_db(): insert guidepost error: " . $database->lastErrorMsg());
     return 0;
   }
+
+  $gp_id = $database->lastInsertRowID();
+
+  if ( $ref != '' ) {
+    $q = "insert into tags values (NULL, $gp_id, 'ref', '" . strtolower($ref) . "')";
+    if (!$database->exec($q)) {
+        $global_error_message = "Error: " . $database->lastErrorMsg();
+        printdebug("insert_to_db(): insert tags.ref error: " . $database->lastErrorMsg());
+        return 0;
+    }
+  }
+
+  if ( $gp_type ) {
+    switch ($gp_type) {
+        case 'gp':
+            $tag = 'rozcestnik';
+            break;
+        case 'map':
+            $tag = 'mapa';
+            break;
+        case 'pano':
+            $tag = 'panorama';
+            break;
+        case 'info':
+            $tag = 'infotabule';
+            break;
+    }
+
+    if ( $tag ) {
+        $q = "insert into tags values (NULL, $gp_id, '$tag', '')";
+        if (!$database->exec($q)) {
+            $global_error_message = "Error: " . $database->lastErrorMsg();
+            printdebug("insert_to_db(): insert tags.$tag error: " . $database->lastErrorMsg());
+            return 0;
+        }
+    }
+  }
+
   printdebug("insert_to_db(): insert successful");
   return 1;
+}
+
+################################################################################
+ # Returns an array of latitude and longitude from the Image file
+ #   ---- http://stackoverflow.com/a/19420991 ----
+ # @param image $file
+ # @return multitype:number |boolean
+function read_gps_location($file){
+################################################################################
+    if (is_file($file)) {
+        $info = exif_read_data($file);
+        if (isset($info['GPSLatitude']) && isset($info['GPSLongitude']) &&
+            isset($info['GPSLatitudeRef']) && isset($info['GPSLongitudeRef']) &&
+            in_array($info['GPSLatitudeRef'], array('E','W','N','S')) && in_array($info['GPSLongitudeRef'], array('E','W','N','S'))) {
+
+            $GPSLatitudeRef  = strtolower(trim($info['GPSLatitudeRef']));
+            $GPSLongitudeRef = strtolower(trim($info['GPSLongitudeRef']));
+
+            $lat_degrees_a = explode('/',$info['GPSLatitude'][0]);
+            $lat_minutes_a = explode('/',$info['GPSLatitude'][1]);
+            $lat_seconds_a = explode('/',$info['GPSLatitude'][2]);
+            $lng_degrees_a = explode('/',$info['GPSLongitude'][0]);
+            $lng_minutes_a = explode('/',$info['GPSLongitude'][1]);
+            $lng_seconds_a = explode('/',$info['GPSLongitude'][2]);
+
+            $lat_degrees = $lat_degrees_a[0] / $lat_degrees_a[1];
+            $lat_minutes = $lat_minutes_a[0] / $lat_minutes_a[1];
+            $lat_seconds = $lat_seconds_a[0] / $lat_seconds_a[1];
+            $lng_degrees = $lng_degrees_a[0] / $lng_degrees_a[1];
+            $lng_minutes = $lng_minutes_a[0] / $lng_minutes_a[1];
+            $lng_seconds = $lng_seconds_a[0] / $lng_seconds_a[1];
+
+            $lat = (float) $lat_degrees+((($lat_minutes*60)+($lat_seconds))/3600);
+            $lng = (float) $lng_degrees+((($lng_minutes*60)+($lng_seconds))/3600);
+
+            //If the latitude is South, make it negative.
+            //If the longitude is West, make it negative
+            $GPSLatitudeRef  == 's' ? $lat *= -1 : '';
+            $GPSLongitudeRef == 'w' ? $lng *= -1 : '';
+
+            return array(
+                'lat' => $lat,
+                'lng' => $lng
+            );
+        }
+    }
+    return false;
 }
 
 ################################################################################
@@ -286,8 +372,11 @@ function process_file()
 
   $note = $_POST['note'];
 
+  $gp_type = $_POST['gp_type'];
+
   printdebug("ref: ".$ref);
   printdebug("note: ".$note);
+  printdebug("gp_type: ".$gp_type);
   printdebug("lat:lon:author:license");
   printdebug("before $lat:$lon:$author:$license");
 
@@ -313,123 +402,144 @@ function process_file()
     printdebug("soubor byl uspesne uploadnut do tmp\n");
     $result = 1;
   } else {
-    printdebug("cannot upload file\n");
     $error_message = "nepodarilo se uploadnout soubor";
+    printdebug("cannot upload file\n");
     $result = 0;
   }
 
   if ($_FILES['uploadedfile']['error'] == "1") {
     $error_message = "soubor je prilis velky";
+    printdebug($error_message);
     $result = 0;
   }
 
   if (!is_utf8($author)) {
-    printdebug("author is not valid utf8");
     $error_message = "author is not valid utf8";
+    printdebug($error_message);
     $result = 0;
   }
 
-  if (!is_utf8($note)) {
-    printdebug("note is not valid utf8");
+  if ($result && !is_utf8($note)) {
     $error_message = "note is not valid utf8";
+    printdebug($error_message);
     $result = 0;
   }
 
-  if (!is_utf8($license)) {
-    printdebug("license is not valid utf8");
-    $error_message = "note is not valid utf8";
+  if ($result && !is_utf8($license)) {
+    $error_message = "license  is not valid utf8";
+    printdebug($error_message);
     $result = 0;
   }
 
-  if ($license === "") {
-    printdebug("license must be defined");
+  if ($result && $license === "") {
     $error_message = "license must be defined";
+    printdebug($error_message);
     $result = 0;
   }
 
-  if ($lat > 180 or $lon > 180 or $lat < -180 or $lon < -180) {
-    printdebug("neplatna souradnice\n");
-    $error_message = "bad coordinates";
-    $result = 0;
-  }
-
-  if ($author === "") {
+  if ($result && $author === "") {
     $error_message = "author nezadan";
+    printdebug($error_message);
     $result = 0;
   }
 
-  if ($author === "android" or $author === "autor") {
+  if ($result && $author === "android" or $author === "autor") {
     $error_message = "zmente vase jmeno";
+    printdebug($error_message);
     $result = 0;
   }
 
-#sanitize filename
+  #sanitize filename
 
-  if (strpos($filename, ';') !== FALSE) {
-    $error_message = "spatny soubor strednik";
+  if ($result && strpos($filename, ';') !== FALSE) {
+    $error_message = "spatny soubor: znak strednik";
+    printdebug($error_message);
     $result = 0;
   }
 
-  if (strpos($filename, '&') !== FALSE) {
-    $error_message = "spatny soubor divnaosmicka";
+  if ($result && strpos($filename, '&') !== FALSE) {
+    $error_message = "spatny soubor: znak divnaosmicka";
+    printdebug($error_message);
     $result = 0;
   }
 
-  $file_parts = pathinfo($filename);
-  $ext = $file_parts['extension'];
-  if ($ext !== "jpg" && $ext !== "JPG") {
-    $error_message = "spatny soubor, pouzijte jpeg " . $file_parts['extension'];
-    $result = 0;
-  }
-
-  if (file_exists("img/guidepost/$file")) {
+  if ($result && file_exists("img/guidepost/$file")) {
     $error_message = "file already exists ($file), please rename your copy";
+    printdebug($error_message);
+    $result = 0;
+  }
+
+  if ($result && !move_uploaded_file($_FILES['uploadedfile']['tmp_name'], $target_path)) {
+    $error_message = "Chyba pri otevirani souboru, mozna je prilis velky";
+    printdebug($error_message);
     $result = 0;
   }
 
   if ($result) {
-    if(move_uploaded_file($_FILES['uploadedfile']['tmp_name'], $target_path)) {
-      printdebug("File '$file' has been moved from tmp to $target_path");
-      if (!$lat && !$lon) {
-        printdebug("soubor byl poslan se souradnicemi 0,0 -> exifme");
-        $command = "/var/www/mapy/exifme.pl '$target_path' '$author' img/guidepost/ '$ref' '$note' '$license'";
-        $out = system ($command, $errlvl);
-        printdebug("command:output(exit code) - $command:$out($errlvl)");
-        if (!$errlvl) {
-          $result = 1;
-        } else {
-          $result = 0;
-          $error_message = "poslano latlon 0,0 a nepodarilo se zjistit souradnice z exif" . $out;
-          printdebug("exifme error $error_message");
-        }
-      } else {
-        printdebug("soubor byl poslan se souradnicemi ve formulari");
-        if (!copy ("uploads/$file","img/guidepost/$file")) {
-          $error_message = "failed to copy $file to destination ... ";
-          $result = 0;
-        } else {
-          $ret_db = insert_to_db($lat, $lon, $final_path, $file, $author, $ref, $note, $license);
-          if ($ret_db) {
-            if (!unlink ("uploads/$file")) {
-              printdebug("$file cannot be deleted from upload, inserted successfuly");
-            }
-          } else {
-            $error_message = "failed to insert to db" . $global_error_message;
-            $result = 0;
-          }
-        }
-      }
-      printdebug("error message:".$error_message);
-    } else {
-      $error_message = "Chyba pri otevirani souboru, mozna je prilis velky";
+    printdebug("File '$file' has been moved from tmp to $target_path");
+  }
+
+  if ($result && mime_content_type($target_path) != 'image/jpeg') {
+    $error_message = "spatny soubor: ocekavan image/jpeg";
+    printdebug($error_message);
+    $result = 0;
+  }
+
+
+  // Check coordinates
+  if ($result && $lat && $lon) {
+    printdebug("soubor byl poslan se souradnicemi ve formulari");
+  }
+
+  // Missing coordinates
+  if ($result && !$lat && !$lon){
+    printdebug("soubor byl poslan se souradnicemi 0,0 -> exifme");
+    $ll = read_gps_location($target_path);
+    if (!$ll) {
       $result = 0;
+      $error_message = "poslano latlon 0,0 a nepodarilo se zjistit souradnice z exif";
+      printdebug("read_gps_location() error $error_message");
+    } else {
+      $lat = $ll['lat'];
+      $lon = $ll['lng'];
+      printdebug("read_gps_location() found coordinates: $lat, $lon");
     }
-  } else {
+  }
+
+  if ($result && $lat > 180 or $lon > 180 or $lat < -180 or $lon < -180) {
+    $error_message = "bad coordinates";
+    printdebug($error_message);
+    $result = 0;
+  }
+
+
+  if ($result && !copy("uploads/$file","img/guidepost/$file")) {
+    $error_message = "failed to copy $file to destination ... ";
+    printdebug($error_message);
+    $result = 0;
+  }
+
+  if ($result) {
+    if (!insert_to_db($lat, $lon, $final_path, $file, $author, $ref, $note, $license, $gp_type)) {
+      $error_message = "failed to insert to db" . $global_error_message;
+      $result = 0;
+      if (!unlink ("uploads/$file")) {
+        printdebug("$file cannot be deleted from upload, inserted successfuly");
+      }
+    }
+  }
+
+  if ($result && !unlink ("uploads/$file")) {
+        printdebug("$file cannot be deleted from upload, inserted successfuly");
+  }
+
+  if (!$result) {
       printdebug("Upload refused: ".$error_message);
   }
 
   if ($result == 0 and $error_message == "") {
     $error_message = "Divna chyba";
+    printdebug($error_message);
   }
 
   if (get_param("source") == "mobile") {
@@ -460,20 +570,43 @@ function create_db()
   global $create_query;
 
 $create_query = "CREATE TABLE guidepost (
-  id int,
+  id int primary key AUTOINCREMENT,
   lat numeric,
   lon numeric,
   url varchar,
   name varchar,
-  PRIMARY KEY (id)
+  attribution varchar,
+  ref varchar,
+  note varchar,
+  license varchar
 );";
 
   $db->queryExec($create_query);
 
-  $db->queryExec("insert into guidepost values (NULL, 50.1, 17.1, 'x', 'znacka');");
-  $db->queryExec("insert into guidepost values (NULL, 50.2, 17.2, 'x', 'znacka');");
-  $db->queryExec("insert into guidepost values (NULL, 50.3, 17.3, 'x', 'znacka');");
-  $db->queryExec("insert into guidepost values (NULL, 50.4, 17.4, 'x', 'znacka');");
+  $db->queryExec("insert into guidepost values (NULL, 50.1, 17.1, 'x', 'znacka', 'autor', 'XB001','poznamka1', 'C');");
+  $db->queryExec("insert into guidepost values (NULL, 50.2, 17.2, 'x', 'znacka', 'autor', 'XB002','poznamka2', 'C');");
+  $db->queryExec("insert into guidepost values (NULL, 50.3, 17.3, 'x', 'znacka', 'autor', 'XB003','poznamka3', 'C');");
+  $db->queryExec("insert into guidepost values (NULL, 50.4, 17.4, 'x', 'znacka', 'autor', 'XB004','poznamka4', 'C');");
+
+$create_query = "CREATE TABLE tags (
+  id integer primary key AUTOINCREMENT,
+  gp_id integer,
+  k varchar,
+  v varchar
+);";
+
+  $db->queryExec($create_query);
+
+$create_query = "CREATE TABLE changes (
+  id integer primary key AUTOINCREMENT,
+  gp_id integer,
+  col varchar,
+  value varchar,
+  action varchar
+);";
+
+  $db->queryExec($create_query);
+
 }
 
 
