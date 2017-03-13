@@ -115,6 +115,7 @@ sub handler
   }
 
   if ($uri =~ "phase2") {
+    &phase2();
   }
 
   closelog();
@@ -250,12 +251,39 @@ sub phase2()
 ################################################################################
 {
 #move coords
+
 #move photo to final location
+
 #create db entry
 
 }
 
+#moved from php
+################################################################################
+#function insert_to_db($lat, $lon, $url ,$file, $author, $ref, $note, $license)
+sub insert_to_db()
+################################################################################
+{
+my ($lat, $lon, $url ,$file, $author, $ref, $note, $license) = @_;
+#  global $global_error_message;
+#  $database = new SQLite3('guidepost');;
+#  if (!$database) {
+#    $global_error_message = (file_exists('guidepost')) ? "Impossible to open, check permissions" : "Impossible to create, check permissions";
+#    return 0;
+#  }
+  $q = "insert into guidepost values (NULL, '$lat', '$lon', '$url', '$file', '$author', '$ref', '$note', '$license')";
+#  $query = $database->exec($q);
+#  if (!$query) {
+#    $global_error_message = "Error: $query_error"; 
+#    return 0;
+#  }
+#  printdebug("insert_to_db(): insert successful");
+#  return 1;
+}
+
+################################################################################
 sub insert_file
+################################################################################
 {
   my $out = "";
   ($fn, $tag) = @_;
@@ -309,7 +337,9 @@ sub generate_html
 1;
 
 
+################################################################################
 sub body
+################################################################################
 {
 my $out = "
   <body>
