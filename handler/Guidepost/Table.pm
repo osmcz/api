@@ -1060,6 +1060,7 @@ sub t()
   if ($s eq "marked for delete") {return "Označeno pro smazání";}
   if ($s eq "times") {return "krát";}
   if ($s eq "license") {return "licence";}
+  if ($s eq "Create date:") {return "Datum vytvoření:";}
 
 #  return  utf8::decode($s);
   return $s;
@@ -1152,6 +1153,16 @@ sub gp_line()
 {
   my ($id, $lat, $lon, $url, $name, $attribution, $ref, $note, $license) = @_;
 
+  my $https = "http";
+
+  if ($api_version eq "openid") {
+   $https = "https";
+  }
+
+  if ($is_https) {
+    $https = "https";
+  }
+
   my $out = "<!-- GP LINE -->";
 
   if ($ref eq "") {
@@ -1179,20 +1190,14 @@ sub gp_line()
   $out .= &edit_stuff($id, $lat, $lon, $url, $name, $attribution, $ref, $note);
 
   $out .= "<br>" . &t("license") . ": $license";
+  $out .= "<br> <a href='" . $https . "://api.openstreetmap.cz/" . $api_version . "/exif/" . $id . "'>" . &t("exif") ."</a>";
+
+  $out .= "<br> ". &t("Create date:") . &get_exif_data($id, "EXIF", "Create Date");
 
   $out .= "</div>";
 
   @attrs= ("lat", "lon", "ref", "attribution", "note");
 
-  my $https = "http";
-
-  if ($api_version eq "openid") {
-   $https = "https";
-  }
-
-  if ($is_https) {
-    $https = "https";
-  }
 
   $out .= "<script>";
   foreach $col (@attrs) {
@@ -1245,7 +1250,9 @@ sub gp_line()
 
   $out .= "<div class='Cell'>";
   $full_uri = "//api.openstreetmap.cz/".$url;
-  $out .= "<a href='$full_uri'><img src='$full_uri' height='150px'><br>$name</a>";
+#  $out .= "<a href='$full_uri'><img src='$full_uri' height='150px'><br>$name</a>";
+  my $thumbnailurl = "http://api.openstreetmap.cz/p/phpThumb.php?h=150&src=" . $https.":".$full_uri;
+  $out .= "<a href='$full_uri'><img src='".$thumbnailurl."' height='150px'><br>$name</a>";
   $out .= "</div>\n";
 
   $out .= "</div> <!-- row -->\n";
@@ -1945,6 +1952,41 @@ sub delete_tags()
   } else {
     if (&check_privileged_access()) {&auto_approve();}
   }
+}
+
+################################################################################
+sub get_exif_data()
+################################################################################
+{
+  my $image_location = "/home/walley/www/mapy/img/guidepost";
+  my ($id, $ret_group, $ret_tag) = @_;
+  my $image_file = &get_gp_column_value($id, 'name');
+  my $out = "";
+  my $image = $image_location."/".$image_file;
+
+#  syslog("info", "exif: " . $image);
+  my $exifTool = new Image::ExifTool;
+  $exifTool->Options(Unknown => 1);
+  my $info = $exifTool->ImageInfo($image);
+  my $group = '';
+  my $tag;
+  foreach $tag ($exifTool->GetFoundTags('Group0')) {
+    if ($group ne $exifTool->GetGroup($tag)) {
+      $group = $exifTool->GetGroup($tag);
+    }
+    my $val = $info->{$tag};
+    if (ref $val eq 'SCALAR') {
+      if ($$val =~ /^Binary data/) {
+        $val = "($$val)";
+      } else {
+        my $len = length($$val);
+        $val = "(Binary data $len bytes)";
+      }
+    }
+    $exifdata{$group}{$exifTool->GetDescription($tag)} = $val;
+  }
+
+  return $exifdata{$ret_group}{$ret_tag};
 }
 
 ################################################################################
