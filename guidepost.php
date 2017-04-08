@@ -235,7 +235,7 @@ $title_help = "Pokud má obrázek Exif souřadnice, můžete nechat lat, lon na 
 }
 
 ################################################################################
-function insert_to_db($lat, $lon, $url ,$file, $author, $ref, $note, $license, $gp_type)
+function insert_to_db($lat, $lon, $url ,$file, $author, $ref, $note, $license, $gp_type, $gp_content)
 ################################################################################
 {
   global $global_error_message;
@@ -285,6 +285,39 @@ function insert_to_db($lat, $lon, $url ,$file, $author, $ref, $note, $license, $
             $global_error_message = "Error: " . $database->lastErrorMsg();
             printdebug("insert_to_db(): insert tags.$tag error: " . $database->lastErrorMsg());
             return 0;
+        }
+    }
+
+    if ( $gp_type == 'gp' && count($gp_content) > 0 ) {
+        foreach($gp_content as $content) {
+
+            $tag = '';
+            switch ($content) {
+                case 'hiking':
+                    $tag = 'pesi';
+                    break;
+                case 'cycle':
+                    $tag = 'cyklo';
+                    break;
+                case 'ski':
+                    $tag = 'lyzarska';
+                    break;
+                case 'horse':
+                    $tag = 'konska';
+                    break;
+                case 'wheelchair':
+                    $tag = 'vozíčkář';
+                    break;
+            }
+
+            if ( $tag ) {
+                $q = "insert into tags values (NULL, $gp_id, '$tag', '')";
+                if (!$database->exec($q)) {
+                    $global_error_message = "Error: " . $database->lastErrorMsg();
+                    printdebug("insert_to_db(): insert tags.$tag error: " . $database->lastErrorMsg());
+                    return 0;
+                }
+            }
         }
     }
   }
@@ -374,9 +407,17 @@ function process_file()
 
   $gp_type = $_POST['gp_type'];
 
+  $gp_content = [];
+  if (isset($_POST['gp_content'])) {
+    foreach($_POST['gp_content'] as $selected) {
+        $gp_content[] = $selected;
+    }
+  }
+
   printdebug("ref: ".$ref);
   printdebug("note: ".$note);
   printdebug("gp_type: ".$gp_type);
+  printdebug("gp_content: ".implode(",", $gp_content));
   printdebug("lat:lon:author:license");
   printdebug("before $lat:$lon:$author:$license");
 
@@ -520,7 +561,7 @@ function process_file()
   }
 
   if ($result) {
-    if (!insert_to_db($lat, $lon, $final_path, $file, $author, $ref, $note, $license, $gp_type)) {
+    if (!insert_to_db($lat, $lon, $final_path, $file, $author, $ref, $note, $license, $gp_type, $gp_content)) {
       $error_message = "failed to insert to db" . $global_error_message;
       $result = 0;
       if (!unlink ("uploads/$file")) {
