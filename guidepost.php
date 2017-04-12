@@ -421,16 +421,17 @@ function process_file()
   printdebug("lat:lon:author:license");
   printdebug("before $lat:$lon:$author:$license");
 
-  $author = preg_replace('/[^-a-zA-Z0-9_ěščřžýáíéĚŠČŘŽÁÍÉúůÚľĽ .]/', '', $author);
-  $note = preg_replace('/[^-a-zA-Z0-9_ěščřžýáíéĚŠČŘŽÁÍÉúůÚľĽ .]/', '', $note);
+  $author = preg_replace('/[^-a-zA-Z0-9_áčďéěíľňóřšťúůýžÁČĎÉĚÍĽŇÓŘŠŤÚŮÝŽ .]/', '', $author);
+  $note = preg_replace('/[^-a-zA-Z0-9_áčďéěíľňóřšťúůýžÁČĎÉĚÍĽŇÓŘŠŤÚŮÝŽ .]/', '', $note);
   $lat = preg_replace('/,/', '\.', $lat);
   $lon = preg_replace('/,/', '\.', $lon);
   $lat = preg_replace('/[^0-9.]/', '', $lat);
   $lon = preg_replace('/[^0-9.]/', '', $lon);
-  $ref = preg_replace('/[^a-zA-Z0-9.,\/]/', '', $ref);
+  $ref = preg_replace('/[^a-zA-Z0-9.,áčďéěíľňóřšťúůýžÁČĎÉĚÍĽŇÓŘŠŤÚŮÝŽ\/]/', '', $ref);
   $license = preg_replace('/[^CBYSA2340plus]/', '', $license);
 
-  printdebug("after $lat:$lon:$author:$license");
+  printdebug("after $lat:$lon:$author:$license:$ref");
+  printdebug("after (note): ".$note);
 
   $file = basename($filename);
   $target_path = "uploads/" . $file;
