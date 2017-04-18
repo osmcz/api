@@ -51,8 +51,10 @@ use Geo::JSON::Point;
 use Geo::JSON::Feature;
 use Geo::JSON::FeatureCollection;
 
-use Sys::Syslog;                        # all except setlogsock()
+use Sys::Syslog;
 use HTML::Entities;
+
+my $dbh;
 
 ################################################################################
 sub handler
@@ -74,6 +76,8 @@ sub handler
   $r->no_cache(1);
   $out = &output_geojson();
   $r->print($out);
+
+  $dbh->disconnect;
 
   closelog();
   return Apache2::Const::OK;
@@ -128,27 +132,24 @@ sub output_geojson
     $query .= " where lat < $maxlat and lat > $minlat and lon < $maxlon and lon > $minlon";
   }
 
-  #syslog('info', "commons query " . $query);
-
   my $pt;
   my $ft;
   my @feature_objects;
 
   my $a;
 
-  my $dbh = DBI->connect(
+  $dbh = DBI->connect(
       "dbi:SQLite:$dbpath/commons", "", "",
       {
-          RaiseError     => 1,
+          RaiseError     => 0,
           sqlite_unicode => 1,
       }
   );
 
-#  my $sql = qq{SET NAMES 'utf8';};
-#  $dbh->do($sql);
-
-  $res = $dbh->selectall_arrayref($query);
-  print $DBI::errstr;
+  $res = $dbh->selectall_arrayref($query) or do {
+    syslog('info', "commons err " . $query. " " . $DBI::errstr);
+    return "";
+  };
 
   foreach my $row (@$res) {
     my ($id, $lat, $lon, $name, $desc) = @$row;
