@@ -51,11 +51,7 @@ use Sys::Syslog;
 use HTML::Entities;
 
 use File::Copy;
-#use Encode::decode_utf8();
 use Encode;
-
-#binmode STDIN, ':utf8';
-#binmode STDOUT, ':utf8';
 
 use Net::Subnet;
 use Image::ExifTool;
@@ -252,6 +248,8 @@ sub handler
     } else {
       $error_result = 400;
     }
+  } elsif ($api_request eq "sequence") {
+    &sequence($uri_components[3]);
   } else {
     syslog('info', "unknown request: $uri");
     $error_result = 400;
@@ -270,6 +268,7 @@ sub handler
     if ($error_result == 400) {error_400();}
     if ($error_result == 401) {error_401();}
     if ($error_result == 404) {error_404();}
+    if ($error_result == 412) {error_412();}
     if ($error_result == 500) {error_500();}
     $r->status($error_result);
   }
@@ -333,6 +332,24 @@ sub error_404()
 }
 
 ################################################################################
+sub error_412()
+################################################################################
+{
+  $r->content_type('text/html; charset=utf-8');
+
+  $r->print('<!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML 2.0//EN">
+<html><head>
+<title>412 Precondition Failed</title>
+</head><body>
+<h1>FAAAAAAAAAAAAAIIIIIIIIIIIIIILLLLLLL!!!11</h1>
+<p>Do NOT fail our preconditions, not cool!</p>
+<hr>
+<address>openstreetmap.cz/2 Ulramegasuperdupercool/0.0.1 Server at api.openstreetmap.cz Port 80</address>
+</body></html>
+');
+}
+
+################################################################################
 sub error_500()
 ################################################################################
 {
@@ -348,6 +365,29 @@ sub error_500()
 <address>openstreetmap.cz/2 Ulramegasuperdupercool/0.0.1 Server at api.openstreetmap.cz Port 80</address>
 </body></html>
 ');
+}
+
+################################################################################
+sub sequence()
+################################################################################
+{
+  my $seq = shift;
+
+  my $out = &page_header();
+
+  $out .= "<ul>";
+  for (my $i = 0; $i < 1000; $i++) {
+    $out .= "<li> $i: $seq$i ";
+    my $zeropadi = sprintf("%03d", $i);
+    $out .= "<a href='http://api.openstreetmap.cz/table/ref/" . uc $seq . $zeropadi . "'>".$seq.$zeropadi."</a>";
+    if (&tag_query("ref",$seq.$i)) {
+    $out .= " - DB ";
+    }
+  }
+  $out .= "</ul>";
+  $out .= &page_footer();
+
+  $r->print($out);
 }
 
 ################################################################################
@@ -1264,7 +1304,7 @@ sub gp_line()
   $out .= "<script>\n";
   $out .= "\$('#ta" . $id . "').tagEditor({
 
-   autocomplete: { delay: 0, position: { collision: 'flip' }, source: ['infotabule', 'mapa', 'cyklo', 'ref', 'panorama', 'lyzarska', 'konska', 'rozcestnik', 'naucna', 'znaceni', 'zelena', 'cervena', 'zluta', 'modra', 'bila', 'rozmazane', 'necitelne', 'zastavka'] },
+   autocomplete: { delay: 0, position: { collision: 'flip' }, source: ['infotabule', 'mapa', 'cyklo', 'ref', 'panorama', 'lyzarska', 'konska', 'rozcestnik', 'naucna', 'znaceni', 'zelena', 'cervena', 'zluta', 'modra', 'bila', 'rozmazane', 'necitelne', 'zastavka', 'memorial', 'eurodotace'] },
    placeholder: 'Vložte tagy ...',
    delimiter:';',
 
@@ -1413,22 +1453,28 @@ sub move_photo()
 {
   my ($id, $lat, $lon) = @_;
 
+  if (is_something($id, "position")) {
+    #already moved
+    syslog('info', $remote_ip . " wants to move id:$id again");
+    $error_result = 412;
+    return;
+  }
+
   my $query = "insert into changes (gp_id, col, value, action) values (?, ?, ?, 'position')";
   $old_lat = &get_gp_column_value($id, "lat");
   $old_lon = &get_gp_column_value($id, "lon");
   syslog('info', $remote_ip . " wants to move id:$id, from $old_lat, $old_lon to '$lat', '$lon'");
   syslog('info', $remote_ip . $query);
 
-  my $res = $dbh->do($query, undef, $id, $lat, $lon);
-
-  if ($res < 1) {
+  my $res = $dbh->do($query, undef, $id, $lat, $lon) or do {
     syslog("info", "500: move_photo($id, $lat, $lon): dbi error " . $DBI::errstr);
     $error_result = 500;
-  } else {
-    syslog("info", "move_photo($id, $lat, $lon): done");
-    &auto_approve();
-  }
+    return;
+  };
 
+  syslog("info", "move_photo($id, $lat, $lon): done");
+
+  if (&check_privileged_access()) {&auto_approve();}
 }
 
 ################################################################################
@@ -1664,7 +1710,7 @@ sub is_edited
 sub is_deleted
 ################################################################################
 {
-  my $out - "";
+  my $out = "";
 
   my ($id) = @_;
   my $query = "select count() from changes where gp_id=$id and action='remove'";
@@ -1676,6 +1722,19 @@ sub is_deleted
     $out = "";
   }
   $r->print($out);
+}
+
+################################################################################
+sub is_something
+################################################################################
+{
+  my $out = "";
+
+  my ($id, $action) = @_;
+  my $query = "select count() from changes where gp_id=$id and action='$action'";
+  my @ret = $dbh->selectrow_array($query);
+
+  return $ret[0];
 }
 
 ################################################################################
@@ -1871,6 +1930,24 @@ sub get_tags()
 }
 
 ################################################################################
+sub tag_query()
+################################################################################
+{
+ my ($k, $v) = @_;
+  my $query = "select * from tags where k like '".$k."' and v like '".$v."'";
+
+  my $res = $dbh->selectall_arrayref($query) or do {
+    syslog("info", "tag_query  dberror " . $DBI::errstr . " q: $query");
+    return 1;
+  };
+
+  $count = scalar @{ $res };
+
+  syslog("info", "tag_query q: $query c: $count");
+  return $count;
+}
+
+################################################################################
 sub tag_exists()
 ################################################################################
 {
@@ -1904,12 +1981,12 @@ sub add_tags()
   my ($id, $tag) = @_;
   my ($k, $v) = split(":", $tag);
 
-  if (&tag_exists($id, $k, $v)) {
+  if ($id eq"" or $k eq "" and $v eq "") {
     $error_result = 400;
     return;
   }
 
-  if ($k eq "" and $v eq "") {
+  if (&tag_exists($id, $k, lc $v) or &tag_exists($id, $k, uc $v)) {
     $error_result = 400;
     return;
   }
