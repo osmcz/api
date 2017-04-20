@@ -1,4 +1,23 @@
 <?php
+
+#   this file is part of Guideposts
+#   Copyright (C) 2014 - 2017 Michal Grezl
+#
+#   Guideposts is free software; you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation; either version 3 of the License, or
+#   (at your option) any later version.
+#
+#   This program is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program; if not, write to the Free Software Foundation,
+#   Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
+#
+
 #lat-y
 #lon-x
 
@@ -327,13 +346,15 @@ function insert_to_db($lat, $lon, $url ,$file, $author, $ref, $note, $license, $
 }
 
 ################################################################################
+function read_gps_location($file)
+################################################################################
+{
+
 # Returns an array of latitude and longitude from the Image file
 #   ---- http://stackoverflow.com/a/19420991 ----
 # @param image $file
 # @return multitype:number |boolean
-################################################################################
-function read_gps_location($file)
-{
+
   if (is_file($file)) {
     $info = exif_read_data($file);
     if (isset($info['GPSLatitude']) && isset($info['GPSLongitude']) &&
@@ -431,8 +452,7 @@ function process_file()
   $ref = preg_replace('/[^a-zA-Z0-9.,áčďéěíľňóřšťúůýžÁČĎÉĚÍĽŇÓŘŠŤÚŮÝŽ\/]/', '', $ref);
   $license = preg_replace('/[^CBYSA2340plus]/', '', $license);
 
-  printdebug("after $lat:$lon:$author:$license:$ref");
-  printdebug("after (note): ".$note);
+  printdebug("after $lat:$lon:$author:$license");
 
   $file = basename($filename);
   $target_path = "uploads/" . $file;
@@ -652,16 +672,14 @@ $create_query = "CREATE TABLE changes (
 
 }
 
+/*
+ if(empty($_FILES) && empty($_POST) && isset($_SERVER['REQUEST_METHOD']) && strtolower($_SERVER['REQUEST_METHOD']) == 'post'){ //catch file overload error...
+   $postMax = ini_get('post_max_size'); //grab the size limits...
+   echo "<p style=\"color: #F00;\">\nPlease note files larger than {$postMax} will result in this error!<br>Please be advised this is not a limitation in the CMS, This is a limitation of the hosting server.<br>For various reasons they limit the max size of uploaded files, if you have access to the php ini file you can fix this by changing the post_max_size setting.<br> If you can't then please ask your host to increase the size limits, or use the FTP uploaded form</p>"; // echo out error and solutions...
+   addForm(); //bounce back to the just filled out form.
+ }
+*/
 
-################################################################################
-# START
-################################################################################
-
-if(empty($_FILES) && empty($_POST) && isset($_SERVER['REQUEST_METHOD']) && strtolower($_SERVER['REQUEST_METHOD']) == 'post') { //catch file overload error...
-  $post_max = ini_get('post_max_size'); //grab the size limits...
-  printdebug("file too too big".$post_max);
-  die("too big\n");
-}
 
 $action = get_param("action");
 
