@@ -1,6 +1,7 @@
 #
 #   mod_perl handler, guideposts, part of openstreetmap.cz
-#   Copyright (C) 2015, 2016 Michal Grezl
+#   Copyright (C) 2015, 2016, 2017 Michal Grezl
+#                 2016 Marián Kyral
 #
 #   This program is free software; you can redistribute it and/or modify
 #   it under the terms of the GNU General Public License as published by
@@ -73,6 +74,9 @@ my $remote_ip;
 my $dbpath;
 my $user;
 
+my $api_request;
+my $api_param;
+
 ################################################################################
 sub handler
 ################################################################################
@@ -80,6 +84,9 @@ sub handler
   $BBOX = 0;
   $LIMIT = 0;
   $OFFSET = 0;
+
+  $api_request = "";
+  $api_param = "";
 
   $r = shift;
 
@@ -150,8 +157,9 @@ sub handler
 
   $error_result = Apache2::Const::OK;
 
-  my $api_request = $uri_components[2];
   $api_version = $uri_components[1];
+  $api_request = $uri_components[2];
+  $api_param = $uri_components[3];
 
   if ($user eq "") {
     $user = "anon.openstreetmap.cz";
@@ -436,13 +444,14 @@ sub check_privileged_access()
   my $ok = subnet_matcher qw(
     185.93.61.0/24
     185.93.60.0/22
-    195.113.123.0/24
+    195.113.123.32/28
     31.31.78.232/32
-
-    62.141.23.8/32
-    46.135.14.8/32
   );
+
+#tmobile    62.141.23.8/32
+#vodafone    46.135.14.8/32
   if ($ok->($remote_ip)) {
+    syslog('info', 'privileged access approved:' . $remote_ip);
     return 1;
   } else {
     syslog('info', 'privileged access denied:' . $remote_ip);
@@ -784,6 +793,12 @@ sub output_html
     "https://goodies.pixabay.com/jquery/tag-editor/jquery.tag-editor.css"
   );
 
+  if ($is_https) {
+    $https = "https";
+  } else {
+    $https = "http";
+  }
+
   my $out = &page_header(\@s,\@l);
 
   $res = $dbh->selectall_arrayref($query) or do {
@@ -798,12 +813,34 @@ sub output_html
     return Apache2::Const::NOT_FOUND;
   }
 
+  if ($num_elements > 5 or $OFFSET or $LIMIT) {
+    $nextoffset = $OFFSET + 5;
+    $prevoffset = $OFFSET - 5;
+
+    if ($prevoffset < 0) {
+      $prevoffset = 0;
+    }
+
+    $prev = "$https://api.openstreetmap.cz/" . $api_version . "/" . $api_request . "/" . $api_param . "?limit=5&offset=" . $prevoffset;
+    $next = "$https://api.openstreetmap.cz/" . $api_version . "/" . $api_request . "/" . $api_param . "?limit=5&offset=" . $nextoffset;
+    $out .= "<a href='$prev'><- prev</a>";
+    $out .= " | ";
+    $out .= "<a href='$next'>next -></a><br>\n";
+  }
+
   $out .= "<!-- user is $user -->\n";
 
+#//aimplement some kind of all
+  my $counter = 0;
+
   foreach my $row (@$res) {
+    if ($counter > 4) {
+      last;
+    }
     my ($id, $lat, $lon, $url, $name, $attribution, $ref, $note, $license) = @$row;
     $out .= &gp_line($id, $lat, $lon, $url, $name, $attribution, $ref, $note, $license);
     $out .= "\n";
+    $counter++;
   }
 
   $out .= "<script>wheelzoom(document.querySelectorAll('img'));</script>";
@@ -1044,10 +1081,23 @@ sub delete_button
 }
 
 ################################################################################
+sub report_illegal
+################################################################################
+{
+  my ($id) = @_;
+  my $ret = "";
+  $ret .= "<span title='" . &t("remove_picture") ."'>";
+  $ret .= "<img src='//api.openstreetmap.cz/img/delete.png' width=16 height=16>";
+  $ret .= "<a href='mailto:openstreetmap@openstreetmap.cz?Subject=osm%20photo%20" . $id . "%20is%20illegal' target='_top'>".&t("illegal")."</a>";
+  $ret .= "</span>";
+  return $ret;
+}
+
+################################################################################
 sub id_stuff
 ################################################################################
 {
-  ($id) = @_;
+  my ($id) = @_;
   my $ret = "<!-- is stuff -->";
   $ret .= "<div class='Table'>\n";
   $ret .= "<div class='Row'>\n";
@@ -1058,10 +1108,15 @@ sub id_stuff
   $ret .= "<div class='Row'>\n";
   $ret .= "<div class='Cell'>\n";
 
-  $ret .= "<div id='remove$id'>\n";
-  $ret .= &delete_button();
-  $ret .= "</div>";
-
+  if (&check_privileged_access()) {
+    $ret .= "<div id='remove$id'>\n";
+    $ret .= &delete_button();
+    $ret .= "</div>";
+  } else {
+    $ret .= "<div id='remove$id'>\n";
+    $ret .= &report_illegal($id);
+    $ret .= "</div>";
+  }
 
   $ret .= "</div>\n";
   $ret .= "</div>\n";
@@ -1101,6 +1156,7 @@ sub t()
   if ($s eq "times") {return "krát";}
   if ($s eq "license") {return "licence";}
   if ($s eq "Create date:") {return "Datum vytvoření:";}
+  if ($s eq "illegal") {return "Nahlásit závadný obsah";}
 
 #  return  utf8::decode($s);
   return $s;
@@ -1167,17 +1223,17 @@ sub edit_stuff
   $out .= &show_table_row("latitude", $lat, $id, "lat");
   $out .= &show_table_row("longtitude", $lon, $id, "lon");
 
-  my $p1 = "<a title='" . &t("Click to show items containing") . " ref' href='/table/ref/" . $ref . "'>" . &t("ref") . "</a>:";
+  my $p1 = "<a title='" . &t("Click to show items containing") . " ref' href='/" . $api_version . "/ref/" . $ref . "'>" . &t("ref") . "</a>:";
   my $p2 = "<div class='edit' id='ref_$id'>" . $ref . "</div>";
   $out .= &show_table_row($p1, $p2, $id, "ref");
 
   $out .= &show_table_row(
-   "<a title='" . &t("Click to show items containing") . " name' href='/table/name/$attribution'>" . &t("by") . "</a>:",
+   "<a title='" . &t("Click to show items containing") . " name' href='/" . $api_version . "/name/$attribution'>" . &t("by") . "</a>:",
    "<div class='edit' id='attribution_$id'>$attribution</div>",
    $id, "attribution"
   );
   $out .= &show_table_row(
-   "<a title='" . &t("Click to show items containing") . " note' href='/table/note/$note'>" . &t("note") . "</a>:",
+   "<a title='" . &t("Click to show items containing") . " note' href='/" . $api_version . "/note/$note'>" . &t("note") . "</a>:",
    "<div class='edit' id='note_$id'>$note</div>",
    $id, "note"
   );
@@ -1851,8 +1907,8 @@ sub remove
 
   if (!&check_privileged_access()) {
     syslog('info', $remote_ip . " was denied the right to remove $id");
-     $error_result = 401;
-     return;
+    $error_result = 401;
+    return;
   }
 
   syslog('info', $remote_ip . " wants to remove $id");
