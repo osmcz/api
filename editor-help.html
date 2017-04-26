@@ -34,7 +34,6 @@
       <li>get/from_id/to_id<p><a href='http://api.openstreetmap.cz/table/get/1/3?output=html'>example</a></p></li>
       <li>leaderboard</li>
       <li>username</li>
-      <li>delete/id</li>
       <li>name</li>
 
       <li>id/hodnota   <p>Zobrazí položku db s id rovnajici se hodnota<a href='http://api.openstreetmap.cz/table/id/100?output=html'>example</a></p></li>
@@ -85,6 +84,12 @@
       <li>licenseinfo
       <br>typ volani GET
       <br>vypise zname licence, jine nelze pouzit
+      <li>squence/xy
+        <br>typ volani GET
+        <br>parametry: 2 pismena zacatku ref rozcestniku, vypise seznam vsech 1000 referenci, DB znamena ze je v db
+      <li>remove
+        <br>typ volani GET
+        <br>parametry: id
     </ul>
     <br>
 
@@ -106,5 +111,13 @@
       <li><b>limit</b> - omezuje pocet vracenych vysledku
       <li><b>offset</b> - umoznuje zobrazeni od urciteho zaznamu, takze ve spolupraci s limit to dela od-do
     </ol>
+    
+    <h3>privileged api</h3>
+      <ol>
+        <li>delete/id smazani</li>
+        <li>remove zadost o smazani
+          <br>typ volani GET
+          <br>parametry: id
+      </ol>
   </body>
 </html>
