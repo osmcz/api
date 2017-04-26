@@ -273,71 +273,71 @@ function insert_to_db($lat, $lon, $url ,$file, $author, $ref, $note, $license, $
 
   $gp_id = $database->lastInsertRowID();
 
-  if ( $ref != '' ) {
+  if ($ref != '' ) {
     $q = "insert into tags values (NULL, $gp_id, 'ref', '" . strtolower($ref) . "')";
     if (!$database->exec($q)) {
-        $global_error_message = "Error: " . $database->lastErrorMsg();
-        printdebug("insert_to_db(): insert tags.ref error: " . $database->lastErrorMsg());
-        return 0;
+      $global_error_message = "Error: " . $database->lastErrorMsg();
+      printdebug("insert_to_db(): insert tags.ref error: " . $database->lastErrorMsg());
+      return 0;
     }
   }
 
-  if ( $gp_type ) {
+  if ($gp_type) {
     switch ($gp_type) {
-        case 'gp':
-            $tag = 'rozcestnik';
-            break;
-        case 'map':
-            $tag = 'mapa';
-            break;
-        case 'pano':
-            $tag = 'panorama';
-            break;
-        case 'info':
-            $tag = 'infotabule';
-            break;
+      case 'gp':
+        $tag = 'rozcestnik';
+        break;
+      case 'map':
+        $tag = 'mapa';
+        break;
+      case 'pano':
+        $tag = 'panorama';
+        break;
+      case 'info':
+        $tag = 'infotabule';
+        break;
     }
 
-    if ( $tag ) {
-        $q = "insert into tags values (NULL, $gp_id, '$tag', '')";
-        if (!$database->exec($q)) {
+    if ($tag) {
+      $q = "insert into tags values (NULL, $gp_id, '$tag', '')";
+      if (!$database->exec($q)) {
+        $global_error_message = "Error: " . $database->lastErrorMsg();
+        printdebug("insert_to_db(): insert tags.$tag error: " . $database->lastErrorMsg());
+        return 0;
+      }
+    }
+
+    if ($gp_type == 'gp' && count($gp_content) > 0) {
+
+      foreach($gp_content as $content) {
+        $tag = '';
+        switch ($content) {
+          case 'hiking':
+            $tag = 'pesi';
+            break;
+          case 'cycle':
+            $tag = 'cyklo';
+            break;
+          case 'ski':
+            $tag = 'lyzarska';
+            break;
+          case 'horse':
+            $tag = 'konska';
+            break;
+          case 'wheelchair':
+            $tag = 'vozíčkář';
+            break;
+        }
+
+        if ($tag) {
+          $q = "insert into tags values (NULL, $gp_id, '$tag', '')";
+          if (!$database->exec($q)) {
             $global_error_message = "Error: " . $database->lastErrorMsg();
             printdebug("insert_to_db(): insert tags.$tag error: " . $database->lastErrorMsg());
             return 0;
+          }
         }
-    }
-
-    if ( $gp_type == 'gp' && count($gp_content) > 0 ) {
-        foreach($gp_content as $content) {
-
-            $tag = '';
-            switch ($content) {
-                case 'hiking':
-                    $tag = 'pesi';
-                    break;
-                case 'cycle':
-                    $tag = 'cyklo';
-                    break;
-                case 'ski':
-                    $tag = 'lyzarska';
-                    break;
-                case 'horse':
-                    $tag = 'konska';
-                    break;
-                case 'wheelchair':
-                    $tag = 'vozíčkář';
-                    break;
-            }
-
-            if ( $tag ) {
-                $q = "insert into tags values (NULL, $gp_id, '$tag', '')";
-                if (!$database->exec($q)) {
-                    $global_error_message = "Error: " . $database->lastErrorMsg();
-                    printdebug("insert_to_db(): insert tags.$tag error: " . $database->lastErrorMsg());
-                    return 0;
-                }
-            }
-        }
+      }
     }
   }
 
@@ -458,6 +458,10 @@ function process_file()
   $target_path = "uploads/" . $file;
   $final_path = "img/guidepost/" . $file;
 
+  $target_path = preg_replace('/#/', '', $target_path);
+  $target_path = preg_replace('/;/', '', $target_path);
+  $target_path = preg_replace('/&/', '', $target_path);
+
   printdebug("target: $target_path");
 
 #keep this as the first test
@@ -512,7 +516,7 @@ function process_file()
     $result = 0;
   }
 
-  #sanitize filename
+//sanitize filename
 
   if ($result && strpos($filename, ';') !== FALSE) {
     $error_message = "spatny soubor: znak strednik";
@@ -575,9 +579,8 @@ function process_file()
     $result = 0;
   }
 
-
-  if ($result && !copy("uploads/$file","img/guidepost/$file")) {
-    $error_message = "failed to copy $file to destination ... ";
+  if ($result && !copy($target_path,$final_path)) {
+    $error_message = "failed to copy $target_path to destination $final_path ... ";
     printdebug($error_message);
     $result = 0;
   }
