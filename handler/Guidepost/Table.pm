@@ -2,6 +2,7 @@
 #   mod_perl handler, guideposts, part of openstreetmap.cz
 #   Copyright (C) 2015, 2016, 2017 Michal Grezl
 #                 2016 Marián Kyral
+#                 2016 Miroslav Suchý
 #
 #   This program is free software; you can redistribute it and/or modify
 #   it under the terms of the GNU General Public License as published by
@@ -61,6 +62,8 @@ use LWP::Simple;
 use Geo::Inverse;
 use Geo::Distance;
 
+use Data::Uniqid qw ( suniqid uniqid luniqid );
+
 my $dbh;
 my $BBOX = 0;
 my $LIMIT = 0;
@@ -77,6 +80,8 @@ my $user;
 my $api_request;
 my $api_param;
 
+my $request_id;
+
 ################################################################################
 sub handler
 ################################################################################
@@ -89,6 +94,8 @@ sub handler
   $api_param = "";
 
   $r = shift;
+
+  $request_id = uniqid;
 
 #  $r = Apache2::Request->new(shift,
 #                               POST_MAX => 10 * 1024 * 1024, # in bytes, so 10M
@@ -108,7 +115,7 @@ sub handler
   openlog('guidepostapi', 'cons,pid', 'user');
 
   if (&check_ban()) {
-    syslog('info', 'access denied:' . $remote_ip);
+    wsyslog('info', 'access denied:' . $remote_ip);
     return Apache2::Const::OK;
   }
 
@@ -165,7 +172,7 @@ sub handler
     $user = "anon.openstreetmap.cz";
   }
 
-  syslog('info', "request from $remote_ip by $user ver. $api_version: $api_request, method " . $r->method() . ", output " . $OUTPUT_FORMAT . ", limit " . $LIMIT);
+  wsyslog('info', "request from $remote_ip by $user ver. $api_version: $api_request, method " . $r->method() . ", output " . $OUTPUT_FORMAT . ", limit " . $LIMIT);
 
   if ($api_request eq  "all") {
     &output_all();
@@ -209,16 +216,9 @@ sub handler
 #default output must be geojson
 #params: $get_data{lat}, $get_data{lon}, $get_data{distance}, $get_data{limit}
     &get_nearby($get_data{lat}, $get_data{lon}, $get_data{distance}, $get_data{limit});
-  } elsif ($api_request eq "tags/delete") {
-# deprecated and not working anyway
-#    &delete_tags($uri_components[4], $uri_components[5]);
   } elsif ($api_request eq "hashtag") {
     #tag search
     &hashtag($uri_components[3]);
-  } elsif ($api_request eq "tags/add") {
-    #id,val
-# deprecated and not working anyway
-#    &add_tags($uri_components[4], $uri_components[5]);
   } elsif ($api_request eq "tags") {
     if ($r->method() eq "GET") {
       my $out = &get_tags($uri_components[4]);
@@ -259,7 +259,7 @@ sub handler
   } elsif ($api_request eq "sequence") {
     &sequence($uri_components[3]);
   } else {
-    syslog('info', "unknown request: $uri");
+    wsyslog('info', "unknown request: $uri");
     $error_result = 400;
   }
 
@@ -270,7 +270,7 @@ sub handler
 
   $dbh->disconnect;
 
-  syslog('info', 'handler result:' . $error_result);
+  wsyslog('info', "handler result $remote_ip :" . $error_result);
 
   if ($error_result) {
     if ($error_result == 400) {error_400();}
@@ -283,6 +283,14 @@ sub handler
 
   closelog();
   return Apache2::Const::OK;
+}
+
+################################################################################
+sub wsyslog
+################################################################################
+{
+  my ($a, $b) = @_;
+  syslog($a, $request_id. " " . $b);
 }
 
 ################################################################################
@@ -451,10 +459,10 @@ sub check_privileged_access()
 #tmobile    62.141.23.8/32
 #vodafone    46.135.14.8/32
   if ($ok->($remote_ip)) {
-    syslog('info', 'privileged access approved:' . $remote_ip);
+    wsyslog('info', 'privileged access approved:' . $remote_ip);
     return 1;
   } else {
-    syslog('info', 'privileged access denied:' . $remote_ip);
+    wsyslog('info', 'privileged access denied:' . $remote_ip);
     return 0;
   }
 }
@@ -708,14 +716,14 @@ sub hashtag
   } elsif ($k eq "" && $v ne "") {
     $query = "select guidepost.* from guidepost,tags where guidepost.id=tags.gp_id and tags.v='$v'";
   } else {
-    syslog("info", "hashtag bad? ($tag)");
+    wsyslog("info", "hashtag bad? ($tag)");
   }
 
   if ($BBOX) {
     $query .= " and ".&add_bbox();
   }
 
-  syslog("info", "hashtag query:" . $query . "(k:v)" . "($k:$v)");
+  wsyslog("info", "hashtag query:" . $query . "(k:v)" . "($k:$v)");
 
   $error_result = &output_data($query);
 }
@@ -738,8 +746,6 @@ sub output_data
   } elsif ($OUTPUT_FORMAT eq "kml") {
     $ret = output_kml($query);
   }
-
-  syslog("info", "output_data result:" . $ret);
 
   return $ret;
 }
@@ -1473,7 +1479,7 @@ sub set_by_id()
   $db_col = $data[0];
 
   if ($db_col eq 'license') {
-    syslog("info", "set_by_id($id, $val): cannot change license this way");
+    wsyslog("info", "set_by_id($id, $val): cannot change license this way");
     $error_result = 500;
   }
 
@@ -1483,18 +1489,17 @@ sub set_by_id()
     $query = "insert into changes (gp_id, col, value, action) values ($db_id, '$db_col', '$val', 'edit')";
   }
 
-  syslog('info', $remote_ip . " wants to change id:$db_id, '$db_col' to '$val'");
+  wsyslog('info', $remote_ip . " wants to change id:$db_id, '$db_col' to '$val'");
   my $sth = $dbh->prepare($query) or do {
-    syslog('info', "500: prepare error, query is:" . $query);
+    wsyslog('info', "500: prepare error, query is:" . $query);
     $error_result = 500;
     return;
   };
 
   my $res = $sth->execute();
-#  my $res = $dbh->do($query, undef, $db_id, $db_col, $val);
 
   if (!$res) {
-    syslog("info", "500: set_by_id($id, $val): dbi error " . $DBI::errstr);
+    wsyslog("info", "500: set_by_id($id, $val): dbi error " . $DBI::errstr);
     $error_result = 500;
   } else {
     &auto_approve();
@@ -1511,7 +1516,7 @@ sub move_photo()
 
   if (is_something($id, "position")) {
     #already moved
-    syslog('info', $remote_ip . " wants to move id:$id again");
+    wsyslog('info', $remote_ip . " wants to move id:$id again");
     $error_result = 412;
     return;
   }
@@ -1519,16 +1524,16 @@ sub move_photo()
   my $query = "insert into changes (gp_id, col, value, action) values (?, ?, ?, 'position')";
   $old_lat = &get_gp_column_value($id, "lat");
   $old_lon = &get_gp_column_value($id, "lon");
-  syslog('info', $remote_ip . " wants to move id:$id, from $old_lat, $old_lon to '$lat', '$lon'");
-  syslog('info', $remote_ip . $query);
+  wsyslog('info', $remote_ip . " wants to move id:$id, from $old_lat, $old_lon to '$lat', '$lon'");
+  wsyslog('info', $remote_ip . $query);
 
   my $res = $dbh->do($query, undef, $id, $lat, $lon) or do {
-    syslog("info", "500: move_photo($id, $lat, $lon): dbi error " . $DBI::errstr);
+    wsyslog("info", "500: move_photo($id, $lat, $lon): dbi error " . $DBI::errstr);
     $error_result = 500;
     return;
   };
 
-  syslog("info", "move_photo($id, $lat, $lon): done");
+  wsyslog("info", "move_photo($id, $lat, $lon): done");
 
   if (&check_privileged_access()) {&auto_approve();}
 }
@@ -1825,48 +1830,48 @@ sub approve_edit
   my ($id) = @_;
 
   if (&check_privileged_access()) {
-    syslog('info', "approving because of privileged_access");
+    wsyslog('info', "approving because of privileged_access");
   } elsif (&authorized()) {
-    syslog('info', "approving because authorized");
+    wsyslog('info', "approving because authorized");
   } else {
     $error_result = 401;
     return;
   }
 
-  syslog('info', "accepting change id: " . $id);
+  wsyslog('info', "accepting change id: " . $id);
 
   my $query = "select * from changes where id='$id'";
   @res = $dbh->selectrow_array($query) or return $DBI::errstr;
   my ($xid, $gp_id, $col, $value, $action) = @res;
 
   if ($action eq "remove") {
-    syslog('info', "deleting $gp_id");
+    wsyslog('info', "deleting $gp_id");
     &delete_id($gp_id);
   } elsif ($action eq "addtag") {
     my $query = "insert into tags values (null, $gp_id, '$col', '$value')";
-    syslog('info', "adding tags " . $query);
+    wsyslog('info', "adding tags " . $query);
     &db_do($query);
   } elsif ($action eq "edit") {
     my $query = "update guidepost set $col='$value' where id=$gp_id";
-    syslog('info', "updating " . $query);
+    wsyslog('info', "updating " . $query);
     &db_do($query);
   } elsif ($action eq "position") {
     my $query = "update guidepost set lat='$col', lon='$value' where id=$gp_id";
-    syslog('info', "moving photo " . $query);
+    wsyslog('info', "moving photo " . $query);
     &db_do($query);
   } elsif ($action eq "deltag") {
     my $query = "delete from tags where gp_id=$gp_id and k='$col' and v='$value'";
-    syslog('info', "deleting tags " . $query);
+    wsyslog('info', "deleting tags " . $query);
     &db_do($query);
   }
 
   if ($error_result > 300) {
-    syslog('info', "approve_edit() error");
+    wsyslog('info', "approve_edit() error");
     return;
   }
 
   my $query = "delete from changes where id=$id";
-  syslog('info', "removing change request " . $query);
+  wsyslog('info', "removing change request " . $query);
   &db_do($query);
 }
 
@@ -1968,12 +1973,13 @@ sub get_tags()
     return $out;
   };
 
-#  syslog("info", "get_tags($id):" . $query);
-
   my $i = 0;
   foreach my $row (@$res) {
-    $out_array[$i++] .= @$row[2] . ":" . @$row[3];
-#    syslog("info", "get_tags array" . $out_array[$i-1] );
+    if (@$row[3] ne "") {
+      $out_array[$i++] .= @$row[2] . ":" . @$row[3];
+    } else {
+      $out_array[$i++] .= @$row[2];
+    }
   }
 
   if ($OUTPUT_FORMAT eq "json"){
@@ -2011,13 +2017,13 @@ sub tag_exists()
   my $query = "select * from tags where gp_id=$id and k='".$k."' and v='".$v."'";
 
   my $res = $dbh->selectall_arrayref($query) or do {
-    syslog("info", "tag_exists  dberror " . $DBI::errstr . " q: $query");
+    wsyslog("info", "tag_exists  dberror " . $DBI::errstr . " q: $query");
     return 1;
   };
 
   $count = scalar @{ $res };
 
-  syslog("info", "tag_exists q: $query c: $count");
+  wsyslog("info", "tag_exists q: $query c: $count");
   return $count;
 }
 
@@ -2026,7 +2032,7 @@ sub auto_approve()
 ################################################################################
 {
   my $last_id = $dbh->sqlite_last_insert_rowid();
-  syslog("info", "change id for autoapprove:" . $last_id);
+  wsyslog("info", "change id for autoapprove:" . $last_id);
   &approve_edit($last_id);
 }
 
@@ -2036,6 +2042,8 @@ sub add_tags()
 {
   my ($id, $tag) = @_;
   my ($k, $v) = split(":", $tag);
+
+  wsyslog('info', $remote_ip . " wants to add tag ($k:$v) for id:$id");
 
   if ($id eq"" or $k eq "" and $v eq "") {
     $error_result = 400;
@@ -2049,13 +2057,14 @@ sub add_tags()
 
   $query = "insert into changes (gp_id, col, value, action) values ($id, '$k', '$v', 'addtag')";
 
-  syslog('info', $remote_ip . " wants to add tag ($k:$v) for id:$id");
 
   my $sth = $dbh->prepare($query);
   my $res = $sth->execute() or do {
-    syslog("info", "500: add_tags($tag): dbi error " . $DBI::errstr);
+    wsyslog("info", "500: add_tags($tag): dbi error " . $DBI::errstr);
     $error_result = 500;
   };
+
+  wsyslog('info', $remote_ip . " added tag ($k:$v) for id:$id");
 
   &auto_approve();
 }
@@ -2132,7 +2141,7 @@ sub exif()
   my $out = "";
   my $image = $image_location."/".$image_file;
 
-  syslog("info", "exif: " . $image);
+#  syslog("info", "exif: " . $image);
   my $exifTool = new Image::ExifTool;
   $exifTool->Options(Unknown => 1);
   my $info = $exifTool->ImageInfo($image );
@@ -2184,35 +2193,35 @@ sub exif()
 sub robot()
 ################################################################################
 {
-  syslog('info', "robot run!");
+  wsyslog('info', "robot run!");
 
   my $query = "select * from changes";
 
   $res = $dbh->selectall_arrayref($query);
   if (!$res) {
     $error_result = 500;
-    syslog('info', "500: robot error: $DBI::errstr");
+    wsyslog('info', "500: robot error: $DBI::errstr");
     return Apache2::Const::SERVER_ERROR;
   };
 
   foreach my $row (@$res) {
     my ($id, $gp_id, $col, $value, $action) = @$row;
     if ($action eq "addtag") {
-      syslog('info', "robot added tag: ($id, $gp_id, $col, $value, $action)");
+      wsyslog('info', "robot added tag: ($id, $gp_id, $col, $value, $action)");
       my $url = "http://api.openstreetmap.cz/table/approve/" . $id;
-      syslog('info', "robot: get $url");
+      wsyslog('info', "robot: get $url");
       my $content = get($url);
-      syslog('info', "robot: " . $content);
+      wsyslog('info', "robot: " . $content);
       $r->print("addtag returned $content ");
     } elsif ($action eq "edit") {
        my $old_value = get_gp_column_value($gp_id, $col);
        if ($old_value eq "" or $old_value eq "none") {
-         syslog('info', "robot adding new value: old is ($old_value) new is ($id, $gp_id, $col, $value, $action)");
+         wsyslog('info', "robot adding new value: old is ($old_value) new is ($id, $gp_id, $col, $value, $action)");
          my $url = "http://api.openstreetmap.cz/table/approve/" . $id;
          my $content = get($url);
          $r->print("edit returned $content ");
        } else {
-         syslog('info', "robot NOT adding new value: old is ($old_value) new is ($id, $gp_id, $col, $value, $action)");
+         wsyslog('info', "robot NOT adding new value: old is ($old_value) new is ($id, $gp_id, $col, $value, $action)");
        }
     } else {
 #      syslog('info', "no robot");
