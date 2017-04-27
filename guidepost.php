@@ -273,6 +273,13 @@ function insert_to_db($lat, $lon, $url ,$file, $author, $ref, $note, $license, $
 
   $gp_id = $database->lastInsertRowID();
 
+  $q = "insert into time (id, gp_id) values (NULL, $gp_id)";
+  if (!$database->exec($q)) {
+    $global_error_message = "Error: " . $database->lastErrorMsg();
+    printdebug("insert_to_db(): insert tags.ref error: " . $database->lastErrorMsg());
+    return 0;
+  }
+
   if ($ref != '' ) {
     $q = "insert into tags values (NULL, $gp_id, 'ref', '" . strtolower($ref) . "')";
     if (!$database->exec($q)) {
