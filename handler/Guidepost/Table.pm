@@ -31,6 +31,7 @@ use Apache2::Reload;
 use Apache2::Request;
 use Apache2::RequestIO ();
 use Apache2::RequestRec ();
+use Apache2::ServerRec;
 use Apache2::URI ();
 
 use APR::Brigade ();
@@ -63,11 +64,13 @@ use Geo::Inverse;
 use Geo::Distance;
 
 use Data::Uniqid qw ( suniqid uniqid luniqid );
+use Time::HiRes;
 
 my $dbh;
 my $BBOX = 0;
 my $LIMIT = 0;
 my $OFFSET = 0;
+my $PROJECT = "";
 my $minlon;
 my $minlat;
 my $maxlon;
@@ -86,6 +89,9 @@ my $request_id;
 sub handler
 ################################################################################
 {
+
+  $start_run_time = Time::HiRes::time();
+
   $BBOX = 0;
   $LIMIT = 0;
   $OFFSET = 0;
@@ -94,6 +100,9 @@ sub handler
   $api_param = "";
 
   $r = shift;
+
+  my $s = $r->server;
+  $s->timeout(20_000_000);
 
   $request_id = uniqid;
 
@@ -270,7 +279,7 @@ sub handler
 
   $dbh->disconnect;
 
-  wsyslog('info', "handler result $remote_ip :" . $error_result);
+  $end_run_time = Time::HiRes::time();
 
   if ($error_result) {
     if ($error_result == 400) {error_400();}
@@ -280,6 +289,8 @@ sub handler
     if ($error_result == 500) {error_500();}
     $r->status($error_result);
   }
+
+  wsyslog('info', "handler result $remote_ip :" . $error_result . " in " . ($end_run_time - $start_run_time) . "s");
 
   closelog();
   return Apache2::Const::OK;
@@ -376,7 +387,7 @@ sub error_500()
 <title>500 Boo Boo</title>
 </head><body>
 <h1>YAY!</h1>
-<p>We don\'t know nothing about this</p>
+<p>We don\'t know nothing about this ;p</p>
 <hr>
 <address>openstreetmap.cz/2 Ulramegasuperdupercool/0.0.1 Server at api.openstreetmap.cz Port 80</address>
 </body></html>
@@ -440,7 +451,12 @@ sub check_ban()
     157.56.0.0/14
     157.54.0.0/15
     91.232.82.106/32
+    164.132.161.7/32
+    137.74.207.164/32
+    51.254.0.0/16
+    51.255.0.0/16
   );
+
 #doubrava  185.93.61.0/24
   return ($banned->($remote_ip));
 }
@@ -452,8 +468,8 @@ sub check_privileged_access()
   my $ok = subnet_matcher qw(
     185.93.61.0/24
     185.93.60.0/22
-    195.113.123.32/28
     31.31.78.232/32
+    195.113.123.32/28
   );
 
 #tmobile    62.141.23.8/32
@@ -762,11 +778,13 @@ sub output_json
   my $ft;
   my @feature_objects;
 
-  $res = $dbh->selectall_arrayref($query);
-  $r->print(encode_json($res));
+  $res = $dbh->selectall_arrayref($query) or do {
+    wsyslog('info', "output_json: select err " . $DBI::errstr);
+    return Apache2::Const::SERVER_ERROR;
+  };
 
-  if (!$res) {
-    print $DBI::errstr;
+  if (!$r->print(encode_json($res))) {
+    wsyslog('info', "output_json: r->print failed");
     return Apache2::Const::SERVER_ERROR;
   }
 
@@ -777,6 +795,31 @@ sub output_json
 sub output_kml
 ################################################################################
 {
+  use utf8;
+
+  my ($query) = @_;
+  my $out = "";
+  my $pt;
+  my $ft;
+  my @feature_objects;
+
+  $res = $dbh->selectall_arrayref($query) or do {
+    wsyslog('info', "output_kml: select err " . $DBI::errstr);
+    return Apache2::Const::SERVER_ERROR;
+  };
+
+  $out .= q(<?xml version="1.0" encoding="UTF-8"?>);
+  $out .= q(<kml xmlns="http://www.opengis.net/kml/2.2">);
+  $out .= q(  <Placemark>);
+  $out .= q(    <name>TBD TBD Simple placemark</name>);
+  $out .= q(    <description>TBD Attached to the ground. Intelligently places itself );
+  $out .= q(       at the height of the underlying terrain.</description>);
+  $out .= q(    <Point>);
+  $out .= q(      <coordinates>-122.0822035425683,37.42228990140251,0</coordinates>);
+  $out .= q(    </Point>);
+  $out .= q(  </Placemark>);
+  $out .= q(</kml>);
+
   return Apache2::Const::SERVER_ERROR;
 }
 
@@ -1094,7 +1137,7 @@ sub report_illegal
   my $ret = "";
   $ret .= "<span title='" . &t("remove_picture") ."'>";
   $ret .= "<img src='//api.openstreetmap.cz/img/delete.png' width=16 height=16>";
-  $ret .= "<a href='mailto:openstreetmap@openstreetmap.cz?Subject=osm%20photo%20" . $id . "%20is%20illegal' target='_top'>".&t("illegal")."</a>";
+  $ret .= "<a href='mailto:openstreetmap\@openstreetmap.cz?Subject=osm%20photo%20" . $id . "%20is%20illegal' target='_top'>".&t("illegal")."</a>";
   $ret .= "</span>";
   return $ret;
 }
@@ -1183,9 +1226,13 @@ sub show_table_row()
     <div class='Cell'>
        <span>" . $p2 . "</span>
     </div>
-    <div class='Cell'>
-      <div id='edited" . $col . $id . "'>checking ...</div>
-    </div>
+    <div class='Cell'>";
+
+  if ($id ne "" and $col ne "") {
+    $out .= "  <div id='edited" . $col . $id . "'>checking ...</div>";
+  }
+
+  $out .=  " </div>
   </div>\n";
   $out .= "<!-- end table row -->\n";
 
@@ -1220,7 +1267,7 @@ sub show_table_header()
 sub edit_stuff
 ################################################################################
 {
-  my ($id, $lat, $lon, $url, $name, $attribution, $ref, $note) = @_;
+  my ($id, $lat, $lon, $url, $name, $attribution, $ref, $note, $license) = @_;
 
   my $out;
 
@@ -1242,6 +1289,18 @@ sub edit_stuff
    "<a title='" . &t("Click to show items containing") . " note' href='/" . $api_version . "/note/$note'>" . &t("note") . "</a>:",
    "<div class='edit' id='note_$id'>$note</div>",
    $id, "note"
+  );
+
+  $out .= &show_table_row(
+    &t("Create date:"),
+    &get_exif_data($id, "EXIF", "Create Date"),
+    "",""
+  );
+
+  $out .= &show_table_row(
+    &t("license"),
+    $license,
+    "",""
   );
 
   $out .= "</div>";
@@ -1289,12 +1348,11 @@ sub gp_line()
   #edit stuff
   $out .= "<div class='Cell cell_middle'>\n";
 
-  $out .= &edit_stuff($id, $lat, $lon, $url, $name, $attribution, $ref, $note);
+  $out .= &edit_stuff($id, $lat, $lon, $url, $name, $attribution, $ref, $note, $license);
 
-  $out .= "<br>" . &t("license") . ": $license";
+  $out .= "<span>";
   $out .= "<br> <a href='" . $https . "://api.openstreetmap.cz/" . $api_version . "/exif/" . $id . "'>" . &t("exif") ."</a>";
-
-  $out .= "<br> ". &t("Create date:") . &get_exif_data($id, "EXIF", "Create Date");
+  $out .= "</span>";
 
   $out .= "</div>";
 
@@ -1306,13 +1364,19 @@ sub gp_line()
     $out .= "
   \$.ajax({
     url: '" . $https . "://api.openstreetmap.cz/" . $api_version . "/isedited/". $col ."/" . $id . "',
-    timeout:3000
+    timeout:5000
   })
   .done(function(data) {
     \$('#edited" . $col . $id . "').text(data);
   })
-  .fail(function() {
-    \$('#edited" . $col . $id . "').text('error');
+  .fail(function(jqXHR, textStatus, errorThrown ) {
+    var status = jqXHR.status;
+    console.log('isedited check fail ' + status);
+    if (textStatus === 'timeout') {
+      \$('#edited" . $col . $id . "').text('timeout');
+    } else {
+      \$('#edited" . $col . $id . "').text('error');
+    }
   })
   .always(function(data) {
   });";
@@ -1323,7 +1387,7 @@ sub gp_line()
   var text = \"" . &delete_button() . "\";
   \$.ajax({
     url: '" . $https . "://api.openstreetmap.cz/". $api_version . "/isdeleted/" . $id . "',
-    timeout:3000
+    timeout:4000
   })
   .done(function(data) {
     if (data.length > 1) {
@@ -1366,7 +1430,7 @@ sub gp_line()
   $out .= "<script>\n";
   $out .= "\$('#ta" . $id . "').tagEditor({
 
-   autocomplete: { delay: 0, position: { collision: 'flip' }, source: ['infotabule', 'mapa', 'cyklo', 'ref', 'panorama', 'lyzarska', 'konska', 'rozcestnik', 'naucna', 'znaceni', 'zelena', 'cervena', 'zluta', 'modra', 'bila', 'rozmazane', 'necitelne', 'zastavka', 'memorial', 'eurodotace'] },
+   autocomplete: { delay: 0, position: { collision: 'flip' }, source: ['infotabule', 'mapa', 'cyklo', 'ref', 'panorama', 'lyzarska', 'konska', 'rozcestnik', 'naucna', 'znaceni', 'zelena', 'cervena', 'zluta', 'modra', 'bila', 'rozmazane', 'necitelne', 'zastavka', 'memorial', 'eurodotace', 'historicke'] },
    placeholder: 'Vložte tagy ...',
    delimiter:';',
 
@@ -1378,12 +1442,22 @@ sub gp_line()
       type: 'POST',
       url: '" . $https . "://api.openstreetmap.cz/" . $api_version . "/tags/',
       data: 'id=" . $id . "&tag=' + val,
-      timeout:3000
+      timeout:4000
     })
-    .done(function(data) {
+    .done(function(data, textStatus, jqXHR) {
+      var status = jqXHR.status;
+      console.log('tag save ' + status);
       return true;
     })
-    .fail(function() {
+    .fail(function(jqXHR, textStatus, errorThrown ) {
+      var status = jqXHR.status;
+      console.log('tag save fail ' + status);
+      if (status == 400) {
+        alert('tag uz zrejme existuje');
+      }
+      if (status == 401) {
+        alert('tag bude pridan po schvaleni');
+      }
       return false;
     })
     .always(function(data) {
@@ -1394,7 +1468,7 @@ sub gp_line()
      \$.ajax({
       url: '" . $https . "://api.openstreetmap.cz/" . $api_version . "/tags/" . $id . "/' + val,
       type: 'DELETE',
-      timeout:3000
+      timeout:4000
     })
     .done(function(data) {
       return true;
@@ -1407,7 +1481,7 @@ sub gp_line()
   });\n";
   $out .= "</script>\n";
 
-  $out .= "</div> <!-- gp_line -->\n";
+  $out .= "</div> <!-- gp_line --><br><br>\n";
 #  syslog('info', $out);
 
   return $out;
@@ -1599,7 +1673,6 @@ sub review_entry
 
     my $obj = Geo::Inverse->new(); # default "WGS84"
 
-    my ($faz, $baz, $dist)=$obj->inverse($oldlat,$oldlon,$lat,$lon);
     my $dist = $obj->inverse($oldlat,$oldlon,$lat,$lon);
 
     my $static_map = "https://open.mapquestapi.com/staticmap/v4/getmap?key=Fmjtd%7Cluu22qu1nu%2Cbw%3Do5-h6b2h&center=$oldlat,$oldlon&zoom=15&size=200,200&type=map&imagetype=png&pois=f,$oldlat,$oldlon|t,$lat,$lon";
@@ -1751,13 +1824,12 @@ sub is_edited
 
   my ($what, $id) = @_;
   my $query = "select count() from changes where gp_id=$id and col='$what'";
-  @res = $dbh->selectrow_array($query);
 
-  if (!@res) {
+  @res = $dbh->selectrow_array($query) or do {
     syslog("info", "500: is_edited dberror " . $DBI::errstr . " q: $query");
     $error_result = 500;
     return;
-  }
+  };
 
   if ($res[0] > 0) {
     $out = " ".&t("edited"). " " . $res[0] . "x";
@@ -1807,7 +1879,7 @@ sub reject_edit
 
   syslog('info', "removing change id: " . $id);
 
-  $rv  = $dbh->do($query) or return $dbh->errstr;
+  $dbh->do($query) or return $dbh->errstr;
   return "OK $id removed";
 }
 
@@ -1828,6 +1900,7 @@ sub approve_edit
 ################################################################################
 {
   my ($id) = @_;
+  my $query;
 
   if (&check_privileged_access()) {
     wsyslog('info', "approving because of privileged_access");
@@ -1840,7 +1913,7 @@ sub approve_edit
 
   wsyslog('info', "accepting change id: " . $id);
 
-  my $query = "select * from changes where id='$id'";
+  $query = "select * from changes where id='$id'";
   @res = $dbh->selectrow_array($query) or return $DBI::errstr;
   my ($xid, $gp_id, $col, $value, $action) = @res;
 
@@ -1848,9 +1921,13 @@ sub approve_edit
     wsyslog('info', "deleting $gp_id");
     &delete_id($gp_id);
   } elsif ($action eq "addtag") {
-    my $query = "insert into tags values (null, $gp_id, '$col', '$value')";
-    wsyslog('info', "adding tags " . $query);
-    &db_do($query);
+
+    if (&tag_exists($gp_id, $col, lc $value) or &tag_exists($gp_id, $col, uc $value)) {
+    } else {
+      my $query = "insert into tags values (null, $gp_id, '$col', '$value')";
+      wsyslog('info', "adding tags " . $query);
+      &db_do($query);
+    }
   } elsif ($action eq "edit") {
     my $query = "update guidepost set $col='$value' where id=$gp_id";
     wsyslog('info', "updating " . $query);
@@ -1870,7 +1947,7 @@ sub approve_edit
     return;
   }
 
-  my $query = "delete from changes where id=$id";
+  $query = "delete from changes where id=$id";
   wsyslog('info', "removing change request " . $query);
   &db_do($query);
 }
@@ -2045,7 +2122,7 @@ sub add_tags()
 
   wsyslog('info', $remote_ip . " wants to add tag ($k:$v) for id:$id");
 
-  if ($id eq"" or $k eq "" and $v eq "") {
+  if ($id eq "" or $k eq "" and $v eq "") {
     $error_result = 400;
     return;
   }
@@ -2250,7 +2327,7 @@ sub notify()
 ################################################################################
 {
   my ($lat, $lon, $text) = @_;
-  syslog('info', "Notification: $lat, $lon, $text");
+  wsyslog('info', "Notification: $lat, $lon, $text");
 }
 
 ################################################################################

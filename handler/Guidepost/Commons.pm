@@ -1,6 +1,6 @@
 #
 #   mod_perl handler, wikimedia commons gudeposts, part of openstreetmap.cz
-#   Copyright (C) 2016 Michal Grezl
+#   Copyright (C) 2016, 2017 Michal Grezl
 #
 #   This program is free software; you can redistribute it and/or modify
 #   it under the terms of the GNU General Public License as published by
@@ -21,38 +21,28 @@ package Guidepost::Commons;
 
 use utf8;
 
+use Apache2::Connection ();
+use Apache2::Const;
+use Apache2::Filter ();
 use Apache2::Reload;
-use Apache2::RequestRec ();
 use Apache2::RequestIO ();
+use Apache2::RequestRec ();
+use Apache2::ServerRec;
 use Apache2::URI ();
-
-use APR::URI ();
 use APR::Brigade ();
 use APR::Bucket ();
-use Apache2::Filter ();
-
-#use Apache2::Const -compile => qw(MODE_READBYTES);
-#use APR::Const    -compile => qw(SUCCESS BLOCK_READ);
-
+use APR::URI ();
 use constant IOBUFSIZE => 8192;
-use Apache2::Connection ();
-use Apache2::RequestRec ();
-
-use APR::Const -compile => qw(URI_UNP_REVEALPASSWORD);
-use Apache2::Const -compile => qw(OK);
-
-use DBI;
-
 use Data::Dumper;
-use Scalar::Util qw(looks_like_number);
-
+use DBI;
+use DBD::SQLite;
 use Geo::JSON;
-use Geo::JSON::Point;
 use Geo::JSON::Feature;
 use Geo::JSON::FeatureCollection;
-
-use Sys::Syslog;
+use Geo::JSON::Point;
 use HTML::Entities;
+use Scalar::Util qw(looks_like_number);
+use Sys::Syslog;
 
 my $dbh;
 
@@ -61,6 +51,9 @@ sub handler
 ################################################################################
 {
   $r = shift;
+  my $s = $r->server;
+  $s->timeout(50_000_000);
+
   $dbpath = $r->dir_config("dbpath");
 
   openlog('commonsapi', 'cons,pid', 'user');
@@ -75,7 +68,10 @@ sub handler
   $r->content_type('text/plain; charset=utf-8');
   $r->no_cache(1);
   $out = &output_geojson();
-  $r->print($out);
+
+  if (!$r->print($out)) {
+    syslog('info', "getdata " . $_ . "=" . $get_args{$_});
+  }
 
   $dbh->disconnect;
 
@@ -102,7 +98,7 @@ sub parse_query_string
     } else {
       $get_args{$_} =~ s/[^A-Za-z0-9 ]//g;
     }
-    #syslog('info', "getdata " . $_ . "=" . $get_args{$_});
+    #
   }
 }
 
@@ -143,6 +139,7 @@ sub output_geojson
       {
           RaiseError     => 0,
           sqlite_unicode => 1,
+          sqlite_open_flags => DBD::SQLite::OPEN_READONLY,
       }
   );
 
