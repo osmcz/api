@@ -168,7 +168,7 @@ sub handler
 
   foreach $text (@uri_components) {
     $text = &smartdecode($text);
-    $text =~ s/[^A-Za-z0-9ěščřžýáíéůúĚŠČŘŽÝÁÍÉŮÚ.:, ]//g;
+    $text =~ s/[^A-Za-z0-9ěščřžýáíéůúĚŠČŘŽÝÁÍÉŮÚ.:, \/]//g;
   }
 
   $error_result = Apache2::Const::OK;
@@ -233,7 +233,8 @@ sub handler
       my $out = &get_tags($uri_components[4]);
       $r->print($out);
     } elsif ($r->method() eq "DELETE") {
-      &delete_tags($uri_components[3], $uri_components[4]);
+      my $joined_ref = substr(join('/', @uri_components[4 .. scalar @uri_components]), 0, -1);
+      &delete_tags($uri_components[3], $joined_ref);
     } elsif ($r->method() eq "POST") {
       &add_tags($post_data{id}, $post_data{tag});
     }
@@ -498,7 +499,7 @@ sub authorized()
   my $is_ok = ($user ne "" and $user ne "anon.openstreetmap.cz");
   my $ok = ($is_ok) ? "ok" : "bad";
 
-  syslog('info', "authorized(): " . $user . " is " . $ok . " from " . $remote_ip);
+  wsyslog('info', "authorized(): " . $user . " is " . $ok . " from " . $remote_ip);
 
   return $is_ok;
 }
@@ -561,8 +562,13 @@ sub say_goodbye
 sub smartdecode
 ################################################################################
 {
+#  wsyslog('info', "before smartdecode:".$_[0]);
+
   use URI::Escape qw( uri_unescape );
   my $x = my $y = uri_unescape($_[0]);
+
+#  wsyslog('info', "after smartdecode: x:".$x.", y:".$y);
+
   return $x if utf8::decode($x);
   return $y;
 }
@@ -602,7 +608,7 @@ sub parse_post_data
 
   #sanitize
   foreach (sort keys %post_data) {
-    syslog('info', "postdata before:" . $_ . "=" . $post_data{$_});
+    wsyslog('info', "postdata before:" . $_ . "=" . $post_data{$_});
     $post_data{$_} = &smartdecode($post_data{$_});
     $post_data{$_} =~ s/\+/ /g;
     $post_data{$_} =~ s/\%2F/\//g;
@@ -619,7 +625,7 @@ sub parse_post_data
     } else {
       $post_data{$_} =~ s/[^A-Za-z0-9 ]//g;
     }
-    syslog('info', "postdata after:" . $_ . "=" . $post_data{$_});
+    wsyslog('info', "postdata after:" . $_ . "=" . $post_data{$_});
   }
 }
 
@@ -637,7 +643,7 @@ sub connect_db
   );
 
   if (!$dbh) {
-    syslog('info', "Cannot connect to db: " . $DBI::errstr);
+    wsyslog('info', "Cannot connect to db: " . $DBI::errstr);
     die;
   }
 }
@@ -698,7 +704,7 @@ sub show_by
 {
   my ($val, $what) = @_;
 
-  syslog('info', "show_by($val, $what)");
+  wsyslog('info', "show_by($val, $what)");
 
   my $query = "select * from guidepost where $what='$val' ";
 
@@ -851,7 +857,7 @@ sub output_html
   my $out = &page_header(\@s,\@l);
 
   $res = $dbh->selectall_arrayref($query) or do {
-    syslog("info", "output_html dberror" . $DBI::errstr);
+    wsyslog("info", "output_html dberror" . $DBI::errstr);
     $error_result = 500;
     return 500;
   };
@@ -981,7 +987,7 @@ sub table_get
   my $query = "select * from guidepost LIMIT " . ($to_gp - $from_gp) . " OFFSET $from_gp";
 
   $res = $dbh->selectall_arrayref($query) or do {
-    syslog("info", "table_get dberror" . $DBI::errstr);
+    wsyslog("info", "table_get dberror" . $DBI::errstr);
     $out = "table_get: DB error";
     $error_result = 500;
     return 500;
@@ -1683,7 +1689,7 @@ sub review_entry
     $out .= "<td>from lat;lon: <font color='red'>$oldlat;$oldlon</font></td>";
     $out .= "<td>to lat;lon: <font color='green'>$col;$value</font></td>";
     $out .= "<td>distance: <font color='blue'>$dist</font></td>";
-    syslog("info", "review position: $oldlat,$oldlon,$lat,$lon");
+    wsyslog("info", "review position: $oldlat,$oldlon,$lat,$lon");
 
   } elsif ($action eq "deltag") {
     $out .= "<td> <h2>delete tags</h2></td>";
@@ -1734,13 +1740,13 @@ sub get_gp_column_value
   $query = "select $column from guidepost where id=$id";
 
   if ($column eq "") {
-    syslog("info", "get_gp_column_value $query");
+    wsyslog("info", "get_gp_column_value $query");
   }
 
   $res = $dbh->selectrow_arrayref($query);
 
   if (!$res) {
-    syslog("info", "get_gp_column_value: dberror '" . $DBI::errstr . "' q: $query");
+    wsyslog("info", "get_gp_column_value: dberror '" . $DBI::errstr . "' q: $query");
     return "error" . $DBI::errstr;
   }
 
@@ -1826,7 +1832,7 @@ sub is_edited
   my $query = "select count() from changes where gp_id=$id and col='$what'";
 
   @res = $dbh->selectrow_array($query) or do {
-    syslog("info", "500: is_edited dberror " . $DBI::errstr . " q: $query");
+    wsyslog("info", "500: is_edited dberror " . $DBI::errstr . " q: $query");
     $error_result = 500;
     return;
   };
@@ -1877,7 +1883,7 @@ sub reject_edit
   my ($id) = @_;
   my $query = "delete from changes where id=$id";
 
-  syslog('info', "removing change id: " . $id);
+  wsyslog('info', "removing change id: " . $id);
 
   $dbh->do($query) or return $dbh->errstr;
   return "OK $id removed";
@@ -1890,7 +1896,7 @@ sub db_do
   my ($query) = @_;
 
   $res = $dbh->do($query) or do {
-    syslog("info", "500: db_do(): dberror:" . $DBI::errstr . " q: $query");
+    wsyslog("info", "500: db_do(): dberror:" . $DBI::errstr . " q: $query");
     $error_result = 500;
   };
 }
@@ -1960,7 +1966,7 @@ sub delete_id
 
   if (!&check_privileged_access()) {return;}
 
-  syslog('info', "deleting id: " . $id);
+  wsyslog('info', "deleting id: " . $id);
 
   my $query = "select * from guidepost where id=$id";
 #  $res = $dbh->selectall_hashref($query, { Slice => {} });
@@ -1970,9 +1976,9 @@ sub delete_id
   my $new_file = "/home/walley/www/mapy/img/guidepost/deleted/" . $res->{$id}->{name};
 
 #move picture to backup directory
-  syslog('info', "Moving $original_file to $new_file");
+  wsyslog('info', "Moving $original_file to $new_file");
   if (!move($original_file, $new_file)) {
-    syslog('info', "Move failed($original_file,$new_file): $!");
+    wsyslog('info', "Move failed($original_file,$new_file): $!");
   }
 
 #delete from db
@@ -1985,19 +1991,19 @@ sub remove
 ################################################################################
 {
   my ($id) = @_;
-  syslog('info', $remote_ip . " wants to remove $id");
+  wsyslog('info', $remote_ip . " wants to remove $id");
 
   if (!&check_privileged_access()) {
-    syslog('info', $remote_ip . " was denied the right to remove $id");
+    wsyslog('info', $remote_ip . " was denied the right to remove $id");
     $error_result = 401;
     return;
   }
 
-  syslog('info', $remote_ip . " wants to remove $id");
+  wsyslog('info', $remote_ip . " wants to remove $id");
   $query = "insert into changes (gp_id, action) values ($id, 'remove')";
   my $sth = $dbh->prepare($query);
   my $res = $sth->execute() or do {
-    syslog("info", "500: remove db error " . $DBI::errstr . " $query");
+    wsyslog("info", "500: remove db error " . $DBI::errstr . " $query");
     $error_result = 500;
     return;
   };
@@ -2010,7 +2016,7 @@ sub get_nearby()
 ################################################################################
 {
   my ($lat, $lon, $m) = @_;
-  syslog('info', "get_nearby(" . "$lat $lon $m)");
+  wsyslog('info', "get_nearby(" . "$lat $lon $m)");
   ($minlat, $minlon) = get_latlon_offset_bbox($lat, $lon, -1 * $m, -1 * $m);
   ($maxlat, $maxlon) = get_latlon_offset_bbox($lat, $lon, $m, $m);
   $BBOX = 1;
@@ -2045,7 +2051,7 @@ sub get_tags()
   my $query = "select * from tags where gp_id=$id";
 
   my $res = $dbh->selectall_arrayref($query) or do {
-    syslog("info", "get_tags dberror " . $DBI::errstr . " q: $query");
+    wsyslog("info", "get_tags dberror " . $DBI::errstr . " q: $query");
     $out = "get_tags: DB error";
     return $out;
   };
@@ -2076,13 +2082,13 @@ sub tag_query()
   my $query = "select * from tags where k like '".$k."' and v like '".$v."'";
 
   my $res = $dbh->selectall_arrayref($query) or do {
-    syslog("info", "tag_query  dberror " . $DBI::errstr . " q: $query");
+    wsyslog("info", "tag_query  dberror " . $DBI::errstr . " q: $query");
     return 1;
   };
 
   $count = scalar @{ $res };
 
-  syslog("info", "tag_query q: $query c: $count");
+  wsyslog("info", "tag_query q: $query c: $count");
   return $count;
 }
 
@@ -2159,14 +2165,14 @@ sub delete_tags()
   }
 
   my $query = "insert into changes (gp_id, col, value, action) values ($id, '$k', '$v', 'deltag')";
-  syslog("info", "delete_tags($tag):" . $query);
-  syslog('info', $remote_ip . " wants to delete tag ($k:$v) for id:$id");
+  wsyslog("info", "delete_tags($tag):" . $query);
+  wsyslog('info', $remote_ip . " wants to delete tag ($k:$v) for id:$id");
 
   my $sth = $dbh->prepare($query);
   my $res = $sth->execute();
 
   if (!$res) {
-    syslog("info", "500: add_tags($tag): dbi error " . $DBI::errstr);
+    wsyslog("info", "500: add_tags($tag): dbi error " . $DBI::errstr);
     $error_result = 500;
   } else {
     if (&check_privileged_access()) {&auto_approve();}
