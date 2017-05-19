@@ -2,6 +2,7 @@
 
 #   this file is part of Guideposts
 #   Copyright (C) 2014 - 2017 Michal Grezl
+#                 2017 Marián Kyral
 #
 #   Guideposts is free software; you can redistribute it and/or modify
 #   it under the terms of the GNU General Public License as published by
@@ -276,7 +277,7 @@ function insert_to_db($lat, $lon, $url ,$file, $author, $ref, $note, $license, $
   $q = "insert into time (id, gp_id) values (NULL, $gp_id)";
   if (!$database->exec($q)) {
     $global_error_message = "Error: " . $database->lastErrorMsg();
-    printdebug("insert_to_db(): insert tags.ref error: " . $database->lastErrorMsg());
+    printdebug("insert_to_db(): insert time error: " . $database->lastErrorMsg());
     return 0;
   }
 
