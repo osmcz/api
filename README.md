@@ -1,9 +1,9 @@
 # api
 api, backend, scripts
 
-You need to have mod_perl from http://perl.apache.org/ installed.
+You need to have mod_perl2 from http://perl.apache.org/ installed.
 
-##apache configuration
+#apache configuration
 
 
 ```
@@ -29,7 +29,7 @@ You need to have mod_perl from http://perl.apache.org/ installed.
   </Location>
 ```
 
-##sqlite3 schema
+#sqlite3 schema
 
 * guidepost db
 
@@ -72,15 +72,12 @@ desc varchar
 );
 ```
 
-##dirs:
+#dirs:
 commons-scripts - bunch of scripts used to create commons db
 handler - mod_perl handlers
+vagrant - portable virtual software development environment, debian and others
 
 
-##guidepost api:
+#guidepost api:
+http://api.openstreetmap.cz/editor-help.html
 
-see editor_help.html
-
-##Development
-
-Te get development environment, just execute `vagrant up frontend` in git root. And `vagrant ssh frontend` gives you command line of that virtual machine.
