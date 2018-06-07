@@ -1,0 +1,61 @@
+<!DOCTYPE HTML PUBLIC '-//W3C//DTD HTML 4.01 Transitional//EN' 'http://www.w3.org/TR/html4/loose.dtd'>
+<html>
+  <head>
+  <meta http-equiv='Content-Type' content='text/html; charset=UTF-8'>
+  <title>openstreetmap.cz image upload</title>
+  <script src='OpenLayers.2.8.0.js'></script>
+  <script src='jquery-1.11.3.min.js'></script>
+  <script src='jquery-ui.min.js'></script>
+  <script language='javascript' type='text/javascript' src='upload.js'></script>
+  <link href='upload.css' rel='stylesheet' type='text/css'/>
+  </head>
+  <body onload='upload_init()'>
+
+<div id='map' class='mapmap'></div>
+<div id='form' class='form'>
+<form id='coord' name='coord' action='/php/guidepost.php' method='post' enctype='multipart/form-data' target='upload_target' onsubmit='start_upload();'>
+  <input type='hidden' name='action' value='file' />
+  <input type='hidden' name='MAX_FILE_SIZE' value='10000000' />
+  <fieldset>
+    <label>autor</label><input type='text' id='author' name='author' value='autor' size='9'>
+    <input name='uploadedfile' type='file' id='guidepostfile' size='20'/><br>
+    <label title='Pokud víte že má obrázek Exif souřadnice, můžete nechat lat, lon na 0,0 (není nutno zatrhávat exif)'>lat</label><input type='text' id='lat' name='lat' value='0' size='10' title='Pokud víte že má obrázek Exif souřadnice, můžete nechat lat, lon na 0,0 (není nutno zatrhávat exif)'>
+    <label title='Pokud víte že má obrázek Exif souřadnice, můžete nechat lat, lon na 0,0 (není nutno zatrhávat exif)'>lon</label><input type='text' id='lon' name='lon' value='0' size='10' title='Pokud víte že má obrázek Exif souřadnice, můžete nechat lat, lon na 0,0 (není nutno zatrhávat exif)'>
+    <label title='Fotka ma vlastni souradnice ulozene v EXIF'>souradnice v exif</label><input type=checkbox id='exif_checkbox' onchange='exif_checkbox_action()' title='Fotka ma vlastni souradnice ulozene v EXIF'>
+  </fieldset>
+  <fieldset>
+    <label>Ref</label><input type='text' name='ref' value='' size='6'>
+    <label>Poznámka</label><input type='text' name='note' value='' size='30'>
+<br>
+    <input type='radio' name='gp_type' value='gp' checked>Rozcestník
+    <input type='radio' name='gp_type' value='map'>Mapa
+    <input type='radio' name='gp_type' value='pano'>Panorama
+    <input type='radio' name='gp_type' value='info'>Informační tabule
+
+  </fieldset>
+  <fieldset>
+    <label for='license'>licence</label>
+    <select id='license' name='license'>
+      <option value='CCBYSA4' selected>Creative Commons Attribution ShareAlike 4.0</option>
+      <option value='CCBYSA3'>Creative Commons Attribution ShareAlike 3.0</option>
+      <option value='CCBY4'>Creative Commons Attribution 4.0</option>
+      <option value='CCBY3'>Creative Commons Attribution 3.0</option>
+      <option value='CCBYSA2plus'>Creative Commons Attribution ShareAlike 2.0 or later </option>
+      <option value='CC0'>Creative Commons CC0 Waiver</option>
+      <option value='C'>Zákon č. 121/2000 Sb.</option>
+    </select>
+  </fieldset>
+  <fieldset>
+    <input type='submit' name='submitBtn' class='sbtn' value='Nahrát soubor' />
+  </fieldset>
+</form>
+</div>
+
+<table><tr> 
+  <td><div id='upload_div'><p style='border:3px solid #aaaaaa;' id='upload_process'>Uploading...</p></div></td>
+  <td><iframe id='upload_target' name='upload_target' src='#' style='width:200px;height:30px;border:3px solid #aaaaaa;'></iframe></td>
+</tr></table>
+
+
+  </body>
+</html>

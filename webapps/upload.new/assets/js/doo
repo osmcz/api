@@ -1,0 +1,26 @@
+#!/usr/bin/perl
+
+opendir(my $dh, '.') || die;
+
+while(readdir $dh) {
+  $x = $_;
+
+  if ($x eq "." or $x eq ".." or $x eq "doo") {
+    next;
+  }
+
+  $name = $x;
+  $name =~ s/[\.-]//g;
+
+  print "\n\n__" . uc $name . "__\n\n";
+
+  open(X, "<$x") or die "Can't find article $ARTICLE: $!\n";
+
+  while (<X>) {
+    print;
+  }
+
+
+}
+
+closedir $dh;

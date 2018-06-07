@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>openstreetmap.cz guidepost editor</title>
+
+<!--jQuery-->
+<script type="text/javascript" src="https://code.jquery.com/jquery-1.10.2.min.js"></script>
+<script type="text/javascript" src="https://code.jquery.com/ui/1.10.3/jquery-ui.min.js"></script>
+<link id="ui-theme" rel="stylesheet" type="text/css" href="https://code.jquery.com/ui/1.10.0/themes/ui-lightness/jquery-ui.css"/>
+
+<!--jui_pagination-->
+<link rel="stylesheet" type="text/css" href="pagination/jquery.jui_pagination.css"/>
+<script type="text/javascript" src="pagination/jquery.jui_pagination.min.js"></script>
+<script type="text/javascript" src="pagination/en.js"></script>
+
+<!-- jeditable -->
+<!--script src="http://www.appelsiini.net/download/jquery.jeditable.mini.js" type="text/javascript"></script-->
+<!--<script src="jquery.jeditable.mini.js" type="text/javascript"></script>-->
+<script src="https://cdn.jsdelivr.net/jquery.jeditable/1.7.3/jquery.jeditable.js"></script>
+
+<!--<script src="wheelzoom.js"></script> useless with thumbnails-->
+
+<!--our styleshit-->
+<link rel="stylesheet" type="text/css" href="editor.css"/>
+
+<!--tags-->
+<link rel="stylesheet" type="text/css" href="https://goodies.pixabay.com/jquery/tag-editor/jquery.tag-editor.css">
+<script type='text/javascript' src='https://goodies.pixabay.com/jquery/tag-editor/jquery.caret.min.js'></script>
+<script type='text/javascript' src='https://goodies.pixabay.com/jquery/tag-editor/jquery.tag-editor.js'></script>
+
+<script>
+
+var page = 0;
+var page_length = 5;
+var gp_count = 0;
+var t;
+var https = "http";
+
+function init_stuff()
+{
+  var version = getParameterByName('login'); 
+  t = "table";
+
+  if (window.location.protocol == "https:") {
+    https = "https";
+  }
+
+  if (version == "openid") {
+    t = "openid";
+    https = "https";
+  }
+}
+
+function getParameterByName(name, url) 
+{
+  if (!url) url = window.location.href;
+  name = name.replace(/[\[\]]/g, "\\$&");
+  var regex = new RegExp("[?&]" + name + "(=([^&#]*)|&|#|$)"), results = regex.exec(url);
+  if (!results) return null;
+  if (!results[2]) return '';
+  return decodeURIComponent(results[2].replace(/\+/g, " "));
+}
+
+function response(response, status, xhr) {
+  if (status == "error") {
+    var msg = "Sorry but there was an error: ";
+    $("#error").html(msg + xhr.status + " " + xhr.statusText);
+  }
+  /*alert("done, status:"+ status);*/
+}
+
+function get_page_count()
+{
+  return Math.ceil(gp_count / page_length);
+}
+
+function left()
+{
+  page--;
+  if (page < 0) {
+    page = get_page_count();
+  }
+  load_page(page);
+}
+
+function right()
+{
+  page++;
+  if (page > get_page_count()) {
+    page = 0;
+  }
+  load_page(page);
+}
+
+function load_page(page)
+{
+  //alert("page " + page);
+  var from = page * page_length;
+  var to = from + page_length;
+
+
+  uri = https + "://api.openstreetmap.cz/" + t + "/get/" + from + "/" + to;
+//  alert(uri);
+
+  $("#new-nav").load(https + "://api.openstreetmap.cz/" + t + "/get/" + from + "/" + to, response);
+  $("#currpage").html("page:" + page);
+
+  $('.edit').editable('http://www.example.com/save.php', {
+     indicator : 'Saving...',
+     cancel    : 'Cancel',
+     submit    : 'OK',
+     event     : "mouseover",
+     tooltip   : 'Click to edit...'
+  });
+
+  window.history.pushState(null, null, https + "://api.openstreetmap.cz/webapps/editor/editor.html?login=" + t + "&xpage=" + page);
+}
+
+function paginator()
+{
+  $(function() {
+  $("#demo_pag1").jui_pagination({
+    currentPage: 1,
+    visiblePageLinks: 8,
+    totalPages: get_page_count(),
+    containerClass: 'container1',
+
+    useSlider: true,
+    sliderInsidePane: true,
+    sliderClass: 'slider1',
+
+    showGoToPage: true,
+    showNavButtons: true,
+
+    disableSelectionNavPane: true,
+
+    navRowsPerPageClass: 'rows-per-page1  ui-state-default ui-corner-all',
+    navGoToPageClass: 'goto-page1 ui-state-default ui-corner-all',
+
+    onChangePage: function(event, page_num) {
+      if(isNaN(page_num) || page_num <= 0) {
+        alert('Invalid page' + ' (' + page_num + ')');
+      } else {
+        page = page_num - 1;
+        load_page(page);
+      }
+    },
+    onSetRowsPerPage: function(event, rpp) {
+      if(isNaN(rpp) || rpp <= 0) {
+        alert('Invalid rows per page' + ' (' + rpp + ')');
+      } else {
+        alert('rows per page successfully changed' + ' (' + rpp + ')');
+        $(this).jui_pagination({
+          rowsPerPage: rpp
+        })
+      }
+    },
+    onDisplay: function() {
+      var showRowsInfo = $(this).jui_pagination('getOption', 'showRowsInfo');
+      var page_num = $(this).jui_pagination('getOption', 'currentPage');
+      if(showRowsInfo) {
+        var prefix = $(this).jui_pagination('getOption', 'nav_rows_info_id_prefix');
+        $("#" + prefix + $(this).attr("id")).text('Total rows: ');
+      }
+      page = page_num - 1;
+      load_page(page);
+    }
+  });
+//  $("#result").html('Current page : ' + $("#demo_pag1").jui_pagination('getOption', 'currentPage'));
+
+  });
+}
+</script>
+
+</head>
+
+<body>
+
+<script>
+  init_stuff();
+  gpccall = $.ajax({
+    timeout: 5000,
+    url: https + "://api.openstreetmap.cz/"+ t +"/count",
+    async: false
+  }).done(function(data) {
+    if (console && console.log) {
+      console.log( "gpccall data:", data.slice( 0, 100 ) );
+    }
+  }).fail(function() {
+    alert("error, nelze zjistit celkovy pocet zaznamu");
+  });
+
+  gp_count = gpccall.responseText;
+
+  paginator();
+  load_page(1);
+</script>
+
+<span style="float:left;"><a href="#"><img src="img/guidepost_nice.png"></a></span>
+<span style="float:right;display: block;"><h1>Guidepost editor</h1></span>
+<div style="clear:both;"></div>
+
+<span style="float:left;display: block;">
+<div id="username">none</div>
+</span>
+
+<span id="login" style="float:right;display: block;"><a href="https://api.openstreetmap.cz/openid/login">OpenID login ...</a></span>
+
+<br><br>
+
+<div id="demo_pag1"></div>
+<div id="new-nav"></div>
+
+
+<!--
+<p>
+<a href="#" onclick="javascript:left()"> &lt; </a>
+<a href="#" onclick="javascript:right()"> &gt; </a>
+<div id="currpage">currpage</div>
+</p>
+-->
+
+
+<div style="clear:both;"></div>
+
+<br><br>
+<hr>
+<script>
+
+  username = $.ajax({
+    url: https + "://api.openstreetmap.cz/"+ t +"/username",
+    async: false
+  }).done (
+    function(data) { 
+      $("#username").html(data);
+      if (data !== 'anon.openstreetmap.cz') {
+        $("#login").html("user:" + data);
+      }
+    });
+
+</script>
+<script id='fbswir2'>(function(i){var f,s=document.getElementById(i);f=document.createElement('iframe');f.src='//api.flattr.com/button/view/?uid=walley&button=compact&url='+encodeURIComponent(document.URL);f.title='Flattr';f.height=20;f.width=110;f.style.borderWidth=0;s.parentNode.insertBefore(f,s);})('fbswir2');</script>
+
+<div style="opacity: 0.2;" id="error">none</div>
+
+</body>
+</html>
+
