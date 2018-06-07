@@ -1,6 +1,6 @@
 #
 #   mod_perl handler, guideposts, part of openstreetmap.cz
-#   Copyright (C) 2015, 2016, 2017 Michal Grezl
+#   Copyright (C) 2015 - 2018 Michal Grezl
 #                 2016 Marián Kyral
 #                 2016 Miroslav Suchý
 #
@@ -71,6 +71,10 @@ my $BBOX = 0;
 my $LIMIT = 0;
 my $OFFSET = 0;
 my $PROJECT = "";
+
+my $image_root = "/var/www/api/";
+my $cdn =  "//cdn.openstreetmap.cz/";
+
 my $minlon;
 my $minlat;
 my $maxlon;
@@ -79,6 +83,7 @@ my $error_result;
 my $remote_ip;
 my $dbpath;
 my $user;
+my $hostname;
 
 my $api_request;
 my $api_param;
@@ -131,6 +136,7 @@ sub handler
 #  syslog('info', 'start method:'. $r->method());
 
   my $uri = $r->uri;
+  $hostname = $r->get_server_name();
 
   &parse_query_string($r);
   &parse_post_data($r);
@@ -156,8 +162,12 @@ sub handler
   } elsif ($get_data{output} eq "json") {
     $OUTPUT_FORMAT = "json";
     $r->content_type('text/plain; charset=utf-8');
+  } elsif ($get_data{output} eq "gpx") {
+    $OUTPUT_FORMAT = "gpx";
+    $r->content_type('text/plain; charset=utf-8');
   } elsif ($get_data{output} eq "kml") {
     $OUTPUT_FORMAT = "kml";
+    $r->content_type('text/plain; charset=utf-8');
   }
 
   $r->no_cache(1);
@@ -181,7 +191,9 @@ sub handler
     $user = "anon.openstreetmap.cz";
   }
 
-  wsyslog('info', "request from $remote_ip by $user ver. $api_version: $api_request, method " . $r->method() . ", output " . $OUTPUT_FORMAT . ", limit " . $LIMIT);
+  wsyslog('info', "request to $hostname from $remote_ip by $user");
+  wsyslog('info', "ver. $api_version: $api_request, method " . $r->method());
+  wsyslog('info', ", output " . $OUTPUT_FORMAT . ", limit " . $LIMIT);
 
   if ($api_request eq  "all") {
     &output_all();
@@ -268,6 +280,10 @@ sub handler
     }
   } elsif ($api_request eq "sequence") {
     &sequence($uri_components[3]);
+  } elsif ($api_request eq "timeadded") {
+    &get_time_added($uri_components[3]);
+  } elsif ($api_request eq "timetaken") {
+    &get_time_taken($uri_components[3]);
   } else {
     wsyslog('info', "unknown request: $uri");
     $error_result = 400;
@@ -318,7 +334,7 @@ sub error_400()
 <h1>This is bad</h1>
 <p>and you should feel bad</p>
 <hr>
-<address>openstreetmap.cz/2 Ulramegasuperdupercool/0.0.1 Server at api.openstreetmap.cz Port 80</address>
+<address>openstreetmap.cz/2 Ulramegasuperdupercool/0.0.1 Server at  Port 80</address>
 </body></html>
 ');
 }
@@ -336,7 +352,7 @@ sub error_401()
 <h1>You can not do this</h1>
 <p>to me:(</p>
 <hr>
-<address>openstreetmap.cz/2 Ulramegasuperdupercool/0.0.1 Server at api.openstreetmap.cz Port 80</address>
+<address>openstreetmap.cz/2 Ulramegasuperdupercool/0.0.1 Server at  Port 80</address>
 </body></html>
 ');
 }
@@ -354,7 +370,7 @@ sub error_404()
 <h1>Not Found</h1>
 <p>We know nothing about this</p>
 <hr>
-<address>openstreetmap.cz/2 Ulramegasuperdupercool/0.0.1 Server at api.openstreetmap.cz Port 80</address>
+<address>openstreetmap.cz/2 Ulramegasuperdupercool/0.0.1 Server at  Port 80</address>
 </body></html>
 ');
 }
@@ -372,7 +388,7 @@ sub error_412()
 <h1>FAAAAAAAAAAAAAIIIIIIIIIIIIIILLLLLLL!!!11</h1>
 <p>Do NOT fail our preconditions, not cool!</p>
 <hr>
-<address>openstreetmap.cz/2 Ulramegasuperdupercool/0.0.1 Server at api.openstreetmap.cz Port 80</address>
+<address>openstreetmap.cz/2 Ulramegasuperdupercool/0.0.1 Server at  Port 80</address>
 </body></html>
 ');
 }
@@ -390,7 +406,7 @@ sub error_500()
 <h1>YAY!</h1>
 <p>We don\'t know nothing about this ;p</p>
 <hr>
-<address>openstreetmap.cz/2 Ulramegasuperdupercool/0.0.1 Server at api.openstreetmap.cz Port 80</address>
+<address>openstreetmap.cz/2 Ulramegasuperdupercool/0.0.1 Server at ' . $hostname . ' Port 80</address>
 </body></html>
 ');
 }
@@ -407,7 +423,7 @@ sub sequence()
   for (my $i = 0; $i < 1000; $i++) {
     $out .= "<li> $i: $seq$i ";
     my $zeropadi = sprintf("%03d", $i);
-    $out .= "<a href='http://api.openstreetmap.cz/table/ref/" . uc $seq . $zeropadi . "'>".$seq.$zeropadi."</a>";
+    $out .= "<a href='http://" . $hostname . "/table/ref/" . uc $seq . $zeropadi . "'>".$seq.$zeropadi."</a>";
     if (&tag_query("ref",$seq.$i)) {
     $out .= " - DB ";
     }
@@ -471,6 +487,7 @@ sub check_privileged_access()
     185.93.60.0/22
     31.31.78.232/32
     195.113.123.32/28
+    193.164.133.120/32
   );
 
 #tmobile    62.141.23.8/32
@@ -757,7 +774,7 @@ sub output_data
   my ($query) = @_;
   my $ret;
 
-#  syslog("info", "output_data in $OUTPUT_FORMAT query:" . $query);
+  wsyslog("info", "output_data in $OUTPUT_FORMAT query:" . $query);
 
   if ($OUTPUT_FORMAT eq "html") {
     $ret = output_html($query);
@@ -765,9 +782,13 @@ sub output_data
     $ret = output_geojson($query);
   } elsif ($OUTPUT_FORMAT eq "json") {
     $ret = output_json($query);
+  } elsif ($OUTPUT_FORMAT eq "gpx") {
+    $ret = output_gpx($query);
   } elsif ($OUTPUT_FORMAT eq "kml") {
     $ret = output_kml($query);
   }
+
+  wsyslog("info", "output_data returning: $ret");
 
   return $ret;
 }
@@ -805,28 +826,107 @@ sub output_kml
 
   my ($query) = @_;
   my $out = "";
+
+#  $res = $dbh->selectall_arrayref($query) or do {
+#    wsyslog('info', "output_kml: select err " . $DBI::errstr);
+#    return Apache2::Const::SERVER_ERROR;
+#  };
+
+  my $style = q(
+ <Style id="guidepost">
+  <IconStyle>
+   <Icon>
+    <href>http://maps.google.com/mapfiles/kml/pal4/icon28.png</href>
+   </Icon>
+  </IconStyle>
+ </Style>
+);
+
+  $out .= q(<?xml version="1.0" encoding="UTF-8"?>);
+  $out .= "\n";
+  $out .= q(<kml xmlns="http://www.opengis.net/kml/2.2">);
+  $out .= "\n";
+  $out .= "<Document>\n";
+
+  $out .= $style;
+
+  my $sth = $dbh->prepare($query);
+  $sth->execute();
+  while($ref = $sth->fetchrow_hashref) {
+#     print join (", ", keys %$ref), "\n";
+#     print join (", ", values %$ref), "\n";
+
+  $desc = "<h1>Guidepost</h1>"
+  . "<ul>"
+  . "<li>pozn:" . %$ref{note}
+  . "<li>ref:" . %$ref{ref}
+  . "<li>attr:" . %$ref{attribution}
+  . "</ul>"
+  . "<img src='http://api.openstreetmap.cz/".%$ref{url}."'>";
+
+  $out .= " <Placemark id=\"w" . %$ref{id}."\">\n";
+  $out .= "  <styleUrl>#guidepost</styleUrl>\n";
+  $out .= "  <name>" . %$ref{name} . "</name>\n";
+  $out .= "  <description>\n<![CDATA[\n" . $desc . "\n]]>\n</description>\n";
+  $out .= "  <Point>\n";
+  $out .= "   <coordinates>". %$ref{lon} . "," . %$ref{lat} . ",0</coordinates>\n";
+  $out .= "  </Point>\n";
+  $out .= " </Placemark>\n";
+  }
+
+  $out .= "</Document>\n";
+  $out .= "</kml>\n";
+
+  $r->print($out);
+
+  return Apache2::Const::OK;
+}
+
+################################################################################
+sub output_gpx
+################################################################################
+{
+  use utf8;
+
+  my ($query) = @_;
+  my $out = "";
   my $pt;
   my $ft;
-  my @feature_objects;
 
   $res = $dbh->selectall_arrayref($query) or do {
-    wsyslog('info', "output_kml: select err " . $DBI::errstr);
+    wsyslog('info', "output_gpx: select err " . $DBI::errstr);
+    $error_result = 500;
     return Apache2::Const::SERVER_ERROR;
   };
 
-  $out .= q(<?xml version="1.0" encoding="UTF-8"?>);
-  $out .= q(<kml xmlns="http://www.opengis.net/kml/2.2">);
-  $out .= q(  <Placemark>);
-  $out .= q(    <name>TBD TBD Simple placemark</name>);
-  $out .= q(    <description>TBD Attached to the ground. Intelligently places itself );
-  $out .= q(       at the height of the underlying terrain.</description>);
-  $out .= q(    <Point>);
-  $out .= q(      <coordinates>-122.0822035425683,37.42228990140251,0</coordinates>);
-  $out .= q(    </Point>);
-  $out .= q(  </Placemark>);
-  $out .= q(</kml>);
+  my $gpx = '<gpx xmlns="http://www.topografix.com/GPX/1/1" creator="walley" version="1.1" xmlns:gpxx="http://www.garmin.com/xmlschemas/GpxExtensions/v3" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd http://www.garmin.com/xmlschemas/GpxExtensions/v3 http://www8.garmin.com/xmlschemas/GpxExtensions/v3/GpxExtensionsv3.xsd">';
+  #my $gpx = '<gpx xmlns="http://www.topografix.com/GPX/1/1" creator="" version="1.1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd">'
+  $out .= q(<?xml version="1.0" encoding="UTF-8" standalone="no" ?>);
+  $out .= "\n";
+  $out .= $gpx;
+  $out .= "\n";
 
-  return Apache2::Const::SERVER_ERROR;
+  foreach my $row (@$res) {
+    my ($id, $lat, $lon, $url, $name, $attribution, $ref, $note, $license) = @$row;
+    $cmt = "$attribution $ref $note";
+    $out .= " <wpt lat=\"$lat\" lon=\"$lon\">\n";
+    $out .= "  <ele>0</ele>\n";
+    $out .= "  <time>2007-08-26T16:08:17Z</time>\n";
+    $out .= "  <name>$name</name>\n";
+    $out .= "  <cmt>$cmt</cmt>\n";
+    $out .= "  <extensions>\n";
+    $out .= "   <gpxx:WaypointExtension>\n";
+    $out .= "   <gpxx:Proximity>100</gpxx:Proximity>\n";
+    $out .= "   </gpxx:WaypointExtension>\n";
+    $out .= "  </extensions>\n";
+  }
+
+  $out .= " </wpt>\n";
+  $out .= "</gpx>\n";
+
+  $r->print($out);
+
+  return Apache2::Const::OK;
 }
 
 ################################################################################
@@ -876,8 +976,8 @@ sub output_html
       $prevoffset = 0;
     }
 
-    $prev = "$https://api.openstreetmap.cz/" . $api_version . "/" . $api_request . "/" . $api_param . "?limit=5&offset=" . $prevoffset;
-    $next = "$https://api.openstreetmap.cz/" . $api_version . "/" . $api_request . "/" . $api_param . "?limit=5&offset=" . $nextoffset;
+    $prev = "$https://" . $hostname . "/" . $api_version . "/" . $api_request . "/" . $api_param . "?limit=5&offset=" . $prevoffset;
+    $next = "$https://" . $hostname . "/" . $api_version . "/" . $api_request . "/" . $api_param . "?limit=5&offset=" . $nextoffset;
     $out .= "<a href='$prev'><- prev</a>";
     $out .= " | ";
     $out .= "<a href='$next'>next -></a><br>\n";
@@ -1051,7 +1151,7 @@ sub leaderboard
 sub init_inplace_edit()
 ################################################################################
 {
-  my $url = "//api.openstreetmap.cz/" . $api_version . "/setbyid";
+  my $url = "//" . $hostname . "/" . $api_version . "/setbyid";
   my $out = "";
 
   $out .= "<script>\n";
@@ -1130,7 +1230,8 @@ sub delete_button
 {
   my $ret = "";
   $ret .= "<span title='" . &t("remove_picture") ."'>";
-  $ret .= "delete <img src='//api.openstreetmap.cz/img/delete.png' width=16 height=16>";
+#FIXME introduce cdn for images
+  $ret .= "delete <img src='" . $cdn . "img/delete.png' width=16 height=16>";
   $ret .= "</span>";
   return $ret;
 }
@@ -1142,7 +1243,7 @@ sub report_illegal
   my ($id) = @_;
   my $ret = "";
   $ret .= "<span title='" . &t("remove_picture") ."'>";
-  $ret .= "<img src='//api.openstreetmap.cz/img/delete.png' width=16 height=16>";
+  $ret .= "<img src='" . $cdn . "img/delete.png' width=16 height=16>";
   $ret .= "<a href='mailto:openstreetmap\@openstreetmap.cz?Subject=osm%20photo%20" . $id . "%20is%20illegal' target='_top'>".&t("illegal")."</a>";
   $ret .= "</span>";
   return $ret;
@@ -1181,7 +1282,7 @@ sub id_stuff
   <script>
   \$('#remove$id').click(function() {
     \$.ajax({
-       url: '//api.openstreetmap.cz/" . $api_version . "/remove/$id',
+       url: '//" . $hostname . "/" . $api_version . "/remove/$id',
     }).done(function() {
       \$('#remove$id').html('marked for deletion')
     });
@@ -1357,7 +1458,11 @@ sub gp_line()
   $out .= &edit_stuff($id, $lat, $lon, $url, $name, $attribution, $ref, $note, $license);
 
   $out .= "<span>";
-  $out .= "<br> <a href='" . $https . "://api.openstreetmap.cz/" . $api_version . "/exif/" . $id . "'>" . &t("exif") ."</a>";
+  $out .= "<br> <a href='" . $https . "://" . $hostname . "/" . $api_version . "/exif/" . $id . "'>" . &t("exif") ."</a>";
+  $out .= "</span>";
+
+  $out .= "<span>";
+  $out .= "<br> <a href='" . $https . "://" . $hostname . "/" . $api_version . "/timeadded/" . $id . "'>" . &t("date added") ."</a>";
   $out .= "</span>";
 
   $out .= "</div>";
@@ -1369,7 +1474,7 @@ sub gp_line()
   foreach $col (@attrs) {
     $out .= "
   \$.ajax({
-    url: '" . $https . "://api.openstreetmap.cz/" . $api_version . "/isedited/". $col ."/" . $id . "',
+    url: '" . $https . "://" . $hostname . "/" . $api_version . "/isedited/". $col ."/" . $id . "',
     timeout:5000
   })
   .done(function(data) {
@@ -1392,7 +1497,7 @@ sub gp_line()
       $out .= "
   var text = \"" . &delete_button() . "\";
   \$.ajax({
-    url: '" . $https . "://api.openstreetmap.cz/". $api_version . "/isdeleted/" . $id . "',
+    url: '" . $https . "://" . $hostname . "/" . $api_version . "/isdeleted/" . $id . "',
     timeout:4000
   })
   .done(function(data) {
@@ -1421,9 +1526,12 @@ sub gp_line()
 
 
   $out .= "<div class='Cell'>";
-  $full_uri = "//api.openstreetmap.cz/".$url;
+
+  $full_uri = $https.":"."//" . $hostname . "/".$url;
+
 #  $out .= "<a href='$full_uri'><img src='$full_uri' height='150px'><br>$name</a>";
-  my $thumbnailurl = "http://api.openstreetmap.cz/p/phpThumb.php?h=150&src=" . $https.":".$full_uri;
+
+  my $thumbnailurl = "http://" . $hostname . "/p/phpThumb.php?h=150&src=" . $full_uri;
   $out .= "<a href='$full_uri'><img src='".$thumbnailurl."' height='150px'><br>$name</a>";
   $out .= "</div>\n";
 
@@ -1470,7 +1578,7 @@ sub gp_line()
    beforeTagSave: function(field, editor, tags, tag, val) {
      \$.ajax({
       type: 'POST',
-      url: '" . $https . "://api.openstreetmap.cz/" . $api_version . "/tags/',
+      url: '" . $https . "://" . $hostname . "/" . $api_version . "/tags/',
       data: 'id=" . $id . "&tag=' + val,
       timeout:4000
     })
@@ -1496,7 +1604,7 @@ sub gp_line()
 
    beforeTagDelete: function(field, editor, tags, val) {
      \$.ajax({
-      url: '" . $https . "://api.openstreetmap.cz/" . $api_version . "/tags/" . $id . "/' + val,
+      url: '" . $https . "://" . $hostname . "/" . $api_version . "/tags/" . $id . "/' + val,
       type: 'DELETE',
       timeout:4000
     })
@@ -1540,7 +1648,7 @@ sub page_header()
   <meta charset="utf-8">
   <meta http-equiv="cache-control" content="no-cache">
   <meta http-equiv="pragma" content="no-cache">
-  <link rel="stylesheet" type="text/css" href="//api.openstreetmap.cz/editor.css">
+  <link rel="stylesheet" type="text/css" href="//api.openstreetmap.cz/webapps/editor/editor.css">
   <title>openstreetmap.cz guidepost editor</title>
 ';
 
@@ -1681,7 +1789,7 @@ sub review_entry
   $out .= "<tr>\n";
 
   $out .= "<td>change id:$id</td>";
-  $out .= "<td>guidepost id:<a href='//api.openstreetmap.cz/" . $api_version . "/id/$gp_id'>$gp_id</a></td>";
+  $out .= "<td>guidepost id:<a href='//" . $hostname . "/" . $api_version . "/id/$gp_id'>$gp_id</a></td>";
 
   $out .= "</tr>\n";
   $out .= "<tr>\n";
@@ -1739,7 +1847,7 @@ sub review_entry
   $out .= "<table>";
   $out .= "<tr>";
   $out .= "<td>";
-  $out .= "<img align='bottom' id='wheelzoom$req_id' src='//api.openstreetmap.cz/img/guidepost/$img' width='320' height='200' alt='mapic'>";
+  $out .= "<img align='bottom' id='wheelzoom$req_id' src='//" . $hostname . "/img/guidepost/$img' width='320' height='200' alt='mapic'>";
   $out .= "</td>";
   $out .= "<td>";
   $out .= "<button style='height:200px;width:200px' onclick='javascript:reject(".$id."," . $req_id . ")' > reject </button>";
@@ -1794,7 +1902,7 @@ sub review_form
   $out .= "
 function approve(id,divid)
 {
-  \$.ajax( '//api.openstreetmap.cz/" . $api_version . "/approve/' + id, function(data) {
+  \$.ajax( '//" . $hostname . "/" . $api_version . "/approve/' + id, function(data) {
     alert( 'Load was performed.' + data );
   })
   .done(function() {
@@ -1809,7 +1917,7 @@ function approve(id,divid)
 
 function reject(id,divid)
 {
-  \$.ajax( '//api.openstreetmap.cz/" . $api_version . "/reject/' + id, function(data) {
+  \$.ajax( '//" . $hostname . "/" . $api_version . "/reject/' + id, function(data) {
     alert( 'Load was performed.'+data );
   })
   .done(function() {
@@ -1996,8 +2104,8 @@ sub delete_id
 #  $res = $dbh->selectall_hashref($query, { Slice => {} });
   $res = $dbh->selectall_hashref($query, 'id');
 
-  my $original_file = "/home/walley/www/mapy/img/guidepost/" . $res->{$id}->{name};
-  my $new_file = "/home/walley/www/mapy/img/guidepost/deleted/" . $res->{$id}->{name};
+  my $original_file =  $image_root . $res->{$id}->{url};
+  my $new_file = $image_root . "/deleted/" . $res->{$id}->{url};
 
 #move picture to backup directory
   wsyslog('info', "Moving $original_file to $new_file");
@@ -2207,9 +2315,9 @@ sub delete_tags()
 sub get_exif_data()
 ################################################################################
 {
-  my $image_location = "/home/walley/www/mapy/img/guidepost";
+  my $image_location = $image_root;
   my ($id, $ret_group, $ret_tag) = @_;
-  my $image_file = &get_gp_column_value($id, 'name');
+  my $image_file = &get_gp_column_value($id, 'url');
   my $out = "";
   my $image = $image_location."/".$image_file;
 
@@ -2242,9 +2350,9 @@ sub get_exif_data()
 sub exif()
 ################################################################################
 {
-  my $image_location = "/home/walley/www/mapy/img/guidepost";
+  my $image_location = $image_root;
   my ($id) = @_;
-  my $image_file = &get_gp_column_value($id, 'name');
+  my $image_file = &get_gp_column_value($id, 'url');
   my $out = "";
   my $image = $image_location."/".$image_file;
 
@@ -2272,6 +2380,7 @@ sub exif()
     $exifdata{$group}{$exifTool->GetDescription($tag)} = $val;
   }
 
+#fixme try this $OUTPUT_FORMAT ~~ ["geojson" "kml" "gpx"]
   if ($OUTPUT_FORMAT eq "geojson" or $OUTPUT_FORMAT eq "kml") {
     #Bad Request
     $error_result = 400;
@@ -2315,7 +2424,7 @@ sub robot()
     my ($id, $gp_id, $col, $value, $action) = @$row;
     if ($action eq "addtag") {
       wsyslog('info', "robot added tag: ($id, $gp_id, $col, $value, $action)");
-      my $url = "http://api.openstreetmap.cz/table/approve/" . $id;
+      my $url = "http://" . $hostname . "/table/approve/" . $id;
       wsyslog('info', "robot: get $url");
       my $content = get($url);
       wsyslog('info', "robot: " . $content);
@@ -2324,7 +2433,7 @@ sub robot()
        my $old_value = get_gp_column_value($gp_id, $col);
        if ($old_value eq "" or $old_value eq "none") {
          wsyslog('info', "robot adding new value: old is ($old_value) new is ($id, $gp_id, $col, $value, $action)");
-         my $url = "http://api.openstreetmap.cz/table/approve/" . $id;
+         my $url = "http://" . $hostname . "/table/approve/" . $id;
          my $content = get($url);
          $r->print("edit returned $content ");
        } else {
@@ -2340,7 +2449,8 @@ sub robot()
 sub login()
 ################################################################################
 {
-  my $uri_redirect = "https://api.openstreetmap.cz/webapps/editor.html?login=openid&amp;xpage=0";
+#FIXME https://github.com/osmcz/api/issues/44
+  my $uri_redirect = "https://api.openstreetmap.cz/webapps/editor/editor.html?login=openid&amp;xpage=0";
   $r->print("<html>");
   $r->print("<head>");
   $r->print("<meta http-equiv='REFRESH' content='1;url=$uri_redirect'>");
@@ -2405,10 +2515,51 @@ sub show_licenses()
   } elsif ($OUTPUT_FORMAT eq "json") {
     %out = ("licenses" => \%licenses, "sites" => \%license_sites);
     $r->print(encode_json(\%out));
-  } elsif ($OUTPUT_FORMAT eq "kml") {
+  } else {
     $error_result = 400;
   }
 
+}
+
+################################################################################
+sub get_time_added
+################################################################################
+{
+  my ($id) = @_;
+  my $out = "nic";
+
+  wsyslog('info', "get_time_added($id)");
+
+  my $query = "select sqltime from time where gp_id=?";
+  my $sth = $dbh->prepare($query);
+  $sth->execute($id);
+
+  my @row = $sth->fetchrow_array() or do {
+    if ($sth->err) {
+      wsyslog("info", "get_time_added dberror " . $DBI::errstr . " q: $query");
+      $error_result = 400;
+      return;
+    } else {
+      wsyslog("info", "get_time_added dberror empty q: $query");
+      $error_result = 404;
+      return;
+    }
+    $error_result = 400;
+    return;
+  };
+
+  $out = $row[0];
+  $r->print($row[0]);
+}
+
+################################################################################
+sub get_time_taken
+################################################################################
+{
+  my ($id) = @_;
+  wsyslog('info', "get_time_taken($id)");
+  my $out = &get_exif_data($id, "EXIF", "Create Date");
+  $r->print($out);
 }
 
 1;
