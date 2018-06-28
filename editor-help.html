@@ -25,6 +25,9 @@
     <li>160315: tagy, vyhledavani, cistej JSON output
     <li>160323: move, exif
     <li>160329: ping, robot
+    <li>180520: gpx, json
+    <li>180524: time
+    <li>180613: projekty start
     </ul>
     <hr>
     <h1>public api</h1>
@@ -36,10 +39,10 @@
       <li>username</li>
       <li>name</li>
 
-      <li>id/hodnota   <p>Zobrazí položku db s id rovnajici se hodnota<a href='http://api.openstreetmap.cz/table/id/100?output=html'>example</a></p></li>
-      <li>ref/hodnota  <p>Zobrazí včechny položky db s ref rovnajici se hodnota<a href='http://api.openstreetmap.cz/table/ref/100?output=html'>example</a></p></li>
-      <li>name/hodnota <p>Zobrazí včechny položky db se jmenem autora rovnajici se hodnota<a href='http://api.openstreetmap.cz/table/name/bublifuk?output=html'>example</a></p></li>
-      <li>note/hodnota <p>Zobrazí včechny položky db s poznamka rovnajici se hodnota<a href='http://api.openstreetmap.cz/table/note/100?output=html'>example</a></p></li>
+      <li>id/hodnota   <p>Zobrazí položku db s id rovnajici se hodnota <br><a href='http://api.openstreetmap.cz/table/id/100?output=html'>example</a></p></li>
+      <li>ref/hodnota  <p>Zobrazí vsechny položky db s ref rovnajici se hodnota <br><a href='http://api.openstreetmap.cz/table/ref/100?output=html'>example</a></p></li>
+      <li>name/hodnota <p>Zobrazí vsechny položky db se jmenem autora rovnajici se hodnota <br><a href='http://api.openstreetmap.cz/table/name/bublifuk?output=html'>example</a></p></li>
+      <li>note/hodnota <p>Zobrazí vsechny položky db s poznamka rovnajici se hodnota <br><a href='http://api.openstreetmap.cz/table/note/100?output=html'>example</a></p></li>
 
       <li>isedited/col/id <p>vrati pocet editaci atributu col pro id</p>
       <li>isedited/column/id <p>column - ref|note|...</p></li>
@@ -48,9 +51,12 @@
         <br>typ volani GET
         <br>vrati polozky ve vzdalenosti distance od lat,lon
         <br>parametry lat,lon,distance, vzdy nastavi geojson output <a href='http://api.openstreetmap.cz/table/close?lat=49.709297&lon=17.07934&distance=1000'>example</a>
-      <li>tags/id <p>vrati tagy pro fotku id 
-        <br><a href='http://api.openstreetmap.cz/table/tags/10'>example</a></p>
-      <li>tags/add/id/value <p>prida tag</p>
+      <li>tags/id 
+        <br>typ volani GET <p>vrati tagy pro fotku id </p>
+        <br>typ volani DELETE <p>smaze tagy pro fotku id parametry url /id/key:value</p>
+        <br>typ volani POST <p>prida tagy pro fotku id  parametry post id tag</p>
+
+      <li>tags/add/id/value - no longer used
       <li>tags/hashtag/key:value
         <br>typ volani GET
         <br>vyhledava tagy (v db je to brano jako klic a hodnota), tag bez hodnoty se  hleda jako klic: nebo klic, hodnota bez klice :hodnota.
@@ -90,7 +96,44 @@
       <li>remove
         <br>typ volani GET
         <br>parametry: id
+
+      <li><b>timeadded</b>
+        <dl>
+          <dt>typ volani GET</dt>
+          <dd><a href='http://api.openstreetmap.cz/table/timeadded/14000?output=html'>example</a></dd>
+          <dt>parametry: id</dt>
+          <dd> zobrazi cas pridani fotky, pokud je znam, format zatim pouze 2017-07-17 15:58:39</dd>
+        </dl>
+      <li>timetaken
+        <dl>
+          <dt>typ volani GET</dt>
+          <dd><a href='http://api.openstreetmap.cz/table/timetaken/100?output=html'>example</a></dd>
+          <dt>parametry: id</dt>
+          <dd> zobrazi cas vyfoceni z exifu pokud je znam, format zatim pouze 2017-07-17 15:58:39</dd>
+        </dl>
+
+<li><b>project/nazev TBD</b>
+<dl>
+<dt>GET</dt>
+<dd>vrati seznam fotek v projektu</dd>
+<dt>POST</dt>
+<dd>prida fotku do projektu</dd>
+<dt>DELETE</dt>
+<dd>smaze fotku z projektu</dd>
+</dl>
+
+<li><b>projectlist</b>
+<dl>
+<dt>GET</dt>
+<dd>vrati seznam projektu</dd>
+<dt>POST</dt>
+<dd>prida projekt</dd>
+<dt>DELETE</dt>
+<dd>smaze projekt</dd>
+</dl>
+
     </ul>
+
     <br>
 
     <h2>parametry pro definici a filtrovany vystupu</h2>
@@ -106,12 +149,13 @@
         <li>html - vystup v html&nbsp;
         <li>geojson - vystup v geojson
         <li>kml - tbd
+        <li>gpx - gpx s extension na vzdalenost od garminu
         <li>json - cisty json.
       </ol>
       <li><b>limit</b> - omezuje pocet vracenych vysledku
       <li><b>offset</b> - umoznuje zobrazeni od urciteho zaznamu, takze ve spolupraci s limit to dela od-do
     </ol>
-    
+
     <h3>privileged api</h3>
       <ol>
         <li>delete/id smazani</li>

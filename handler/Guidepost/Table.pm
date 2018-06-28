@@ -71,6 +71,7 @@ my $BBOX = 0;
 my $LIMIT = 0;
 my $OFFSET = 0;
 my $PROJECT = "";
+my $PROJECTID = 0;
 
 my $image_root = "/var/www/api/";
 my $cdn =  "//cdn.openstreetmap.cz/";
@@ -100,6 +101,8 @@ sub handler
   $BBOX = 0;
   $LIMIT = 0;
   $OFFSET = 0;
+  $PROJECT = "";
+  $PROJECTID = 0;
 
   $api_request = "";
   $api_param = "";
@@ -125,8 +128,11 @@ sub handler
 
   $user = $ENV{REMOTE_USER};
   $is_https = $ENV{HTTPS};
+  $referrer = $ENV{HTTP_REFERER};
 
   openlog('guidepostapi', 'cons,pid', 'user');
+
+  wsyslog('info', 'referrer:' . $referrer);
 
   if (&check_ban()) {
     wsyslog('info', 'access denied:' . $remote_ip);
@@ -151,6 +157,10 @@ sub handler
 
   if (exists $get_data{offset}) {
     $OFFSET = $get_data{offset};
+  }
+
+  if (exists $get_data{project}) {
+    $PROJECT = $get_data{project};
   }
 
   if (!exists $get_data{output} or $get_data{output} eq "html") {
@@ -193,7 +203,10 @@ sub handler
 
   wsyslog('info', "request to $hostname from $remote_ip by $user");
   wsyslog('info', "ver. $api_version: $api_request, method " . $r->method());
-  wsyslog('info', ", output " . $OUTPUT_FORMAT . ", limit " . $LIMIT);
+  wsyslog('info', "output " . $OUTPUT_FORMAT . ", limit " . $LIMIT. ", offset " . $OFFSET);
+  if ($PROJECT ne "") {
+    wsyslog('info', "project " . $PROJECT . "id is " . $PROJECTID);
+  }
 
   if ($api_request eq  "all") {
     &output_all();
@@ -217,6 +230,12 @@ sub handler
   } elsif ($api_request eq "setbyid") {
     &set_by_id($post_data{id}, $post_data{value});
   } elsif ($api_request eq "move") {
+    if ($post_data{lname} ne "" ) {
+      $user = $post_data{lname};
+      wsyslog('info', "osmcz username: $user");
+    } else {
+      wsyslog('info', "no osmcz username provided");
+    }
     &move_photo($post_data{id}, $post_data{lat}, $post_data{lon});
   } elsif ($api_request eq "isedited") {
     #/isedited/ref/id
@@ -284,6 +303,30 @@ sub handler
     &get_time_added($uri_components[3]);
   } elsif ($api_request eq "timetaken") {
     &get_time_taken($uri_components[3]);
+  } elsif ($api_request eq "projectlist") {
+    if ($r->method() eq "GET") {
+      &list_projects();
+    } elsif ($r->method() eq "POST") {
+      &debug_postdata();
+      &add_project($post_data{add});
+    } elsif ($r->method() eq "DELETE") {
+      &remove_project($post_data{project});
+    }
+  } elsif ($api_request eq "project") {
+    if ($r->method() eq "GET") {
+      #get - list of photos, probably ids
+      &list_assigned($uri_components[3]);
+    } elsif ($r->method() eq "POST") {
+      #post - add photo to project
+      assign_to_project($post_data{gp_id}, $post_data{project});
+    } elsif ($r->method() eq "DELETE") {
+      &debug_postdata();
+      remove_from_project($post_data{gp_id}, $post_data{project})
+      #delete - remove photo from project
+    }
+  } elsif ($api_request eq "resolve") {
+    my $out = &resolve_project_id($uri_components[3]);
+    $r->print($out);
   } else {
     wsyslog('info', "unknown request: $uri");
     $error_result = 400;
@@ -292,7 +335,6 @@ sub handler
 #Dumper(\%ENV);
 #    connection_info($r->connection);
 #    $r->send_http_header;   # Now send the http headers.
-
 
   $dbh->disconnect;
 
@@ -417,15 +459,23 @@ sub sequence()
 {
   my $seq = shift;
 
-  my $out = &page_header();
+  my $out = &page_header([],[],"guidepost sequence");
+
+  $out .= "<style>\n";
+  $out .= "li.g { background: green; }\n";
+  $out .= "li,r { background: red; }\n";
+  $out .= "</style>\n";
 
   $out .= "<ul>";
   for (my $i = 0; $i < 1000; $i++) {
-    $out .= "<li> $i: $seq$i ";
     my $zeropadi = sprintf("%03d", $i);
-    $out .= "<a href='http://" . $hostname . "/table/ref/" . uc $seq . $zeropadi . "'>".$seq.$zeropadi."</a>";
+
     if (&tag_query("ref",$seq.$i)) {
-    $out .= " - DB ";
+    $out .= "<li class='g'> $i: ";
+      $out .= "<a href=" . &https() . "://" . $hostname . "/table/ref/" . uc $seq . $zeropadi . "'>".$seq.$zeropadi."</a>";
+    } else  {
+    $out .= "<li  class='r'> $i: ";
+      $out .= uc $seq . $zeropadi;
     }
   }
   $out .= "</ul>";
@@ -438,18 +488,15 @@ sub sequence()
 sub output_all()
 ################################################################################
 {
-  my $query = "select g.*, (select GROUP_CONCAT(k||':'||v, ';') from tags t where t.gp_id = g.id) from guidepost g";
+  my $query;
 
-  if ($BBOX) {
-    $query .= " where " . &add_bbox();
-  }
-
-  if ($LIMIT) {
-    $query .= " limit " . $LIMIT;
-  }
-
-  if ($OFFSET) {
-    $query .= " offset " . $OFFSET;
+  if ($PROJECT ne "") {
+    $prj_id = &get_project_id($PROJECT);
+    $query = "select g.*, (select GROUP_CONCAT(k||':'||v, ';') from tags t where t.gp_id = g.id) from guidepost g,prjgp where g.id=prjgp.gp_id and prjgp.prj_id=$prj_id ";
+    $query = &add_uri_params_to_query($query);
+  } else {
+    $query = "select g.*, (select GROUP_CONCAT(k||':'||v, ';') from tags t where t.gp_id = g.id) from guidepost g ";
+    $query = &add_uri_params_to_query($query, 1);
   }
 
   &output_data($query);
@@ -485,7 +532,6 @@ sub check_privileged_access()
   my $ok = subnet_matcher qw(
     185.93.61.0/24
     185.93.60.0/22
-    31.31.78.232/32
     195.113.123.32/28
     193.164.133.120/32
   );
@@ -606,10 +652,21 @@ sub parse_query_string
       $get_data{$_} =~ s/[^A-Za-z0-9\.,-]//g;
     } elsif ($_ =~ /output/i ) {
       $get_data{$_} =~ s/[^A-Za-z0-9\.,-\/]//g;
+    } elsif ($_ =~ /project/i ) {
+      $get_data{$_} =~ s/[^A-Za-z0-9]//g;
     } else {
       $get_data{$_} =~ s/[^A-Za-z0-9 ]//g;
     }
 #    syslog('info', "getdata " . $_ . "=" . $get_data{$_});
+  }
+}
+
+################################################################################
+sub debug_postdata
+################################################################################
+{
+  foreach (sort keys %post_data) {
+    wsyslog('debug', "postdata:" . $_ . "=" . $post_data{$_});
   }
 }
 
@@ -625,7 +682,7 @@ sub parse_post_data
 
   #sanitize
   foreach (sort keys %post_data) {
-    wsyslog('info', "postdata before:" . $_ . "=" . $post_data{$_});
+#    wsyslog('debug', "postdata before:" . $_ . "=" . $post_data{$_});
     $post_data{$_} = &smartdecode($post_data{$_});
     $post_data{$_} =~ s/\+/ /g;
     $post_data{$_} =~ s/\%2F/\//g;
@@ -716,17 +773,20 @@ sub show_by_name
 }
 
 ################################################################################
-sub show_by
+sub add_uri_params_to_query()
 ################################################################################
 {
-  my ($val, $what) = @_;
+  my ($query, $add_where) = @_;
 
-  wsyslog('info', "show_by($val, $what)");
-
-  my $query = "select * from guidepost where $what='$val' ";
 
   if ($BBOX) {
-    $query .= " and ".&add_bbox();
+    if ($add_where) {
+      $query .= " where ";
+    } else {
+      $query .= " and ";
+    }
+
+    $query .= " ".&add_bbox();
   }
 
   if ($LIMIT) {
@@ -736,6 +796,31 @@ sub show_by
   if ($OFFSET) {
     $query .= " offset " . $OFFSET;
   }
+
+  return $query;
+}
+
+################################################################################
+sub show_by
+################################################################################
+{
+  my ($val, $what) = @_;
+  my $query;
+
+  wsyslog('info', "show_by($val, $what)");
+
+  if ($PROJECT ne "") {
+    #project query
+    $query = "select * from guidepost,prjgp where guidepost.id=prjgp.gp_id and prjgp.prj_id=2 and guidepost.$what='$val'";
+  } else {
+    $query = "select * from guidepost where $what='$val' ";
+  }
+
+  wsyslog('info', "show_by $query");
+
+  $query = &add_uri_params_to_query($query);
+
+  wsyslog('info', "show_by $query");
 
   $error_result = &output_data($query);
 }
@@ -758,9 +843,7 @@ sub hashtag
     wsyslog("info", "hashtag bad? ($tag)");
   }
 
-  if ($BBOX) {
-    $query .= " and ".&add_bbox();
-  }
+  $query = &add_uri_params_to_query($query);
 
   wsyslog("info", "hashtag query:" . $query . "(k:v)" . "($k:$v)");
 
@@ -826,11 +909,6 @@ sub output_kml
 
   my ($query) = @_;
   my $out = "";
-
-#  $res = $dbh->selectall_arrayref($query) or do {
-#    wsyslog('info', "output_kml: select err " . $DBI::errstr);
-#    return Apache2::Const::SERVER_ERROR;
-#  };
 
   my $style = q(
  <Style id="guidepost">
@@ -930,6 +1008,67 @@ sub output_gpx
 }
 
 ################################################################################
+sub output_html_pager()
+################################################################################
+{
+  my $out = "";
+
+  if ($LIMIT == 0) {
+    $LIMIT = 5;
+  }
+
+  $nextoffset = $OFFSET + $LIMIT;
+  $prevoffset = $OFFSET - $LIMIT;
+
+  if ($prevoffset < 0) {
+    $prevoffset = 0;
+  }
+
+#lol
+  $prev = &get_protocol()."://" . $hostname . "/" . $api_version . "/" . $api_request . "/" . $api_param . "?limit=" . $LIMIT . "&offset=" . $prevoffset . &project_uri_param();
+  $next = &get_protocol()."://" . $hostname . "/" . $api_version . "/" . $api_request . "/" . $api_param . "?limit=" . $LIMIT . "&offset=" . $nextoffset . &project_uri_param();
+
+  $lm = $LIMIT - 1;
+  if ($lm < 1) {
+    $lm = 1;
+  }
+
+  $lp = $LIMIT + 1;
+#no check ....
+#  if ($lp > ??????) {
+#    $lm = 1;
+#  }
+
+#lolx2
+  $limit_plus  = &get_protocol()."://" . $hostname . "/" . $api_version . "/" . $api_request . "/" . $api_param . "?limit=" . $lp . "&offset=" . $OFFSET . &project_uri_param();
+  $limit_minus = &get_protocol()."://" . $hostname . "/" . $api_version . "/" . $api_request . "/" . $api_param . "?limit=" . $lm . "&offset=" . $OFFSET . &project_uri_param();
+
+  $out .= "<a href='$prev'>&lt;- prev</a>";
+  $out .= " | ";
+  $out .= "<a href='$next'>next -&gt;</a>\n";
+  $out .= " limit ";
+  $out .= "<a href='" . $limit_plus . "'>[+]</a>";
+  $out .= "<a href='" . $limit_minus . "'>[-]</a>";
+
+  $out .= "\n<br>";
+
+  return $out;
+}
+
+################################################################################
+sub https
+################################################################################
+{
+  my $https;
+  if ($is_https) {
+    $https = "https";
+  } else {
+    $https = "http";
+  }
+  return $https;
+}
+
+################################################################################
 sub output_html
 ################################################################################
 {
@@ -948,11 +1087,13 @@ sub output_html
     "https://goodies.pixabay.com/jquery/tag-editor/jquery.tag-editor.css"
   );
 
-  if ($is_https) {
-    $https = "https";
-  } else {
-    $https = "http";
-  }
+#  if ($is_https) {
+#    $https = "https";
+#  } else {
+#    $https = "http";
+#  }
+
+  $https = &https();
 
   my $out = &page_header(\@s,\@l);
 
@@ -968,28 +1109,33 @@ sub output_html
     return Apache2::Const::NOT_FOUND;
   }
 
-  if ($num_elements > 5 or $OFFSET or $LIMIT) {
-    $nextoffset = $OFFSET + 5;
-    $prevoffset = $OFFSET - 5;
+  $out .= &output_html_pager();
 
-    if ($prevoffset < 0) {
-      $prevoffset = 0;
-    }
+#  if ($num_elements > 5 or $OFFSET or $LIMIT) {
+#    $nextoffset = $OFFSET + 5;
+#    $prevoffset = $OFFSET - 5;
+#
+#    if ($prevoffset < 0) {
+#      $prevoffset = 0;
+#    }
+#
+#    $prev = "$https://" . $hostname . "/" . $api_version . "/" . $api_request . "/" . $api_param . "?limit=5&offset=" . $prevoffset . &project_uri_param();
+#    $next = "$https://" . $hostname . "/" . $api_version . "/" . $api_request . "/" . $api_param . "?limit=5&offset=" . $nextoffset . &project_uri_param();
+#    $out .= "<a href='$prev'>&lt;- prev</a>";
+#    $out .= " | ";
+#    $out .= "<a href='$next'>next -&gt;</a><br>\n";
+#  }
 
-    $prev = "$https://" . $hostname . "/" . $api_version . "/" . $api_request . "/" . $api_param . "?limit=5&offset=" . $prevoffset;
-    $next = "$https://" . $hostname . "/" . $api_version . "/" . $api_request . "/" . $api_param . "?limit=5&offset=" . $nextoffset;
-    $out .= "<a href='$prev'><- prev</a>";
-    $out .= " | ";
-    $out .= "<a href='$next'>next -></a><br>\n";
+  if ($PROJECT ne "") {
+    $out .= "<h1>projekt: $PROJECT</h1>\n";
   }
 
   $out .= "<!-- user is $user -->\n";
 
-#//aimplement some kind of all
   my $counter = 0;
 
   foreach my $row (@$res) {
-    if ($counter > 4) {
+    if ($counter > $LIMIT - 1) {
       last;
     }
     my ($id, $lat, $lon, $url, $name, $attribution, $ref, $note, $license) = @$row;
@@ -998,8 +1144,13 @@ sub output_html
     $counter++;
   }
 
-  $out .= "<script>wheelzoom(document.querySelectorAll('img'));</script>";
+#  wheelzoom disabled
+#  $out .= "<script>wheelzoom(document.querySelectorAll('img'));</script>";
+
   $out .= &init_inplace_edit();
+
+  $out .= &output_html_pager();
+
   $out .= &page_footer();
 
   $r->print($out);
@@ -1214,12 +1365,7 @@ sub static_map()
 
   $static_map = "https://open.mapquestapi.com/staticmap/v4/getmap?key=Fmjtd%7Cluu22qu1nu%2Cbw%3Do5-h6b2h&center=$lat,$lon&zoom=15&size=200,200&type=map&imagetype=png&pois=x,$lat,$lon";
 #  $out .=  "<img src='http://staticmap.openstreetmap.de/staticmap.php?center=$lat,$lon&zoom=14&size=200x200&maptype=mapnik&markers=$lat,$lon,lightblue1' />";
-
-#  $out .=  "<span class='staticmap'>\n";
-#  $out .=  "<span>\n";
-  $out .=  "<img class='zoom' src='".$static_map."'/>";
-#  $out .=  "</span>\n";
-
+  $out .=  "<img src='".$static_map."'/>";
   return $out;
 }
 
@@ -1640,7 +1786,7 @@ sub get_gp_count
 sub page_header()
 ################################################################################
 {
-  my ($scripts, $links) = @_;
+  my ($scripts, $links, $title) = @_;
   my $out = '
 <!doctype html>
 <html lang="en">
@@ -1649,8 +1795,13 @@ sub page_header()
   <meta http-equiv="cache-control" content="no-cache">
   <meta http-equiv="pragma" content="no-cache">
   <link rel="stylesheet" type="text/css" href="//api.openstreetmap.cz/webapps/editor/editor.css">
-  <title>openstreetmap.cz guidepost editor</title>
 ';
+
+  if ($title) {
+    $out .= "<title>$title</title>";
+  } else {
+    $out .= "<title>openstreetmap.cz guidepost editor</title>";
+  }
 
   foreach $i (@$links) {
     $out .= "  <link rel='stylesheet' type='text/css' href='";
@@ -1736,8 +1887,7 @@ sub move_photo()
   my $query = "insert into changes (gp_id, col, value, action) values (?, ?, ?, 'position')";
   $old_lat = &get_gp_column_value($id, "lat");
   $old_lon = &get_gp_column_value($id, "lon");
-  wsyslog('info', $remote_ip . " wants to move id:$id, from $old_lat, $old_lon to '$lat', '$lon'");
-  wsyslog('info', $remote_ip . $query);
+  wsyslog('info', $remote_ip . " wants to move id:$id, from '$old_lat', '$old_lon' to '$lat', '$lon'");
 
   my $res = $dbh->do($query, undef, $id, $lat, $lon) or do {
     wsyslog("info", "500: move_photo($id, $lat, $lon): dbi error " . $DBI::errstr);
@@ -1747,7 +1897,9 @@ sub move_photo()
 
   wsyslog("info", "move_photo($id, $lat, $lon): done");
 
-  if (&check_privileged_access()) {&auto_approve();}
+# if (&check_privileged_access()) {&auto_approve();} 
+# osmcz web sends username from osm oauth
+  &auto_approve();
 }
 
 ################################################################################
@@ -2034,6 +2186,18 @@ sub db_do
 }
 
 ################################################################################
+sub db_do2
+################################################################################
+{
+  my ($query, $param) = @_;
+
+  $res = $dbh->do($query, undef, $param) or do {
+    wsyslog("info", "500: db_do(): dberror:" . $DBI::errstr . " q: $query");
+    $error_result = 500;
+  };
+}
+
+################################################################################
 sub approve_edit
 ################################################################################
 {
@@ -2273,7 +2437,11 @@ sub add_tags()
   $query = "insert into changes (gp_id, col, value, action) values ($id, '$k', '$v', 'addtag')";
 
 
-  my $sth = $dbh->prepare($query);
+  my $sth = $dbh->prepare($query) or do {
+    wsyslog("info", "500: add_tags($tag): prepare dbi error " . $DBI::errstr);
+    $error_result = 500;
+  };
+
   my $res = $sth->execute() or do {
     wsyslog("info", "500: add_tags($tag): dbi error " . $DBI::errstr);
     $error_result = 500;
@@ -2560,6 +2728,325 @@ sub get_time_taken
   wsyslog('info', "get_time_taken($id)");
   my $out = &get_exif_data($id, "EXIF", "Create Date");
   $r->print($out);
+}
+
+################################################################################
+sub add_to_project
+################################################################################
+{
+
+  my ($gp_id, $prj_id) = @_;
+
+  $query = "insert into prjgp (gp_id, prj_id) values ($gp_id, $prj_id)";
+
+  wsyslog('info', "adding $gp_id into project ...");
+  my $sth = $dbh->prepare($query) or do {
+    wsyslog('info', "500: prepare error, query is:" . $query);
+    $error_result = 500;
+    return;
+  };
+
+  $sth->execute() or do {
+    wsyslog("info", "500: add_to_project dbi error " . $DBI::errstr);
+  };
+
+ $r->print("a");
+
+}
+
+################################################################################
+sub project_uri_param
+################################################################################
+{
+  my $r;
+  if ($PROJECT ne "") {
+    $r = "&project=$PROJECT";
+  } else {
+    $r = "";
+  }
+  return $r;
+}
+
+################################################################################
+sub get_project_id
+################################################################################
+{
+  my $what = shift;
+
+  if (looks_like_number($what)) {
+    return $what;
+  } else {
+    return &resolve_project($what);
+  }
+}
+
+################################################################################
+sub resolve_project
+################################################################################
+{
+  my $what = shift;
+  my $query;
+
+  if (!$what) {
+    wsyslog('info', "resolve: no param.");
+    return;
+  }
+
+  wsyslog('info', "resolving " . $what . ".");
+
+  if (looks_like_number($what)) {
+    wsyslog('info', "id to name");
+    $query = "select name from project where id=?";
+  } else {
+    wsyslog('info', "name to id");
+    $query = "select id from project where name=?";
+  }
+
+  my $sth = $dbh->prepare($query);
+  my $rv = $sth->execute($what) or do {
+    wsyslog('info', "500: resolve, query:" . $query);
+    $error_result = 500;
+    return;
+  };
+
+  my @row = $sth->fetchrow_array();
+  $count = scalar @row;
+  if ($count) {
+    wsyslog('info', "resolved: " . $row[0] . ".");
+    return $row[0];
+  } else {
+    wsyslog('info', "resolved: nothing found");
+    return;
+  }
+}
+
+################################################################################
+sub get_protocol
+################################################################################
+{
+  if ($is_https) {
+    $https = "https";
+  } else {
+    $https = "http";
+  }
+}
+
+################################################################################
+sub list_projects
+################################################################################
+{
+  my $out = "";
+  my $id = shift;
+
+  my $query = "select name from project";
+
+  my $res = $dbh->selectall_arrayref($query) or do {
+    wsyslog("info", "500: list_projects(): dberror:" . $DBI::errstr . " q: $query");
+    $error_result = 500;
+    return;
+  };
+
+  if ($OUTPUT_FORMAT eq "json"){
+    $out .= encode_json($res);
+  } elsif ($OUTPUT_FORMAT eq "html"){
+    $out .= &page_header();
+    $out .= "<ol>\n";
+    foreach my $i (@$res) {
+      $out .= "<li>\n";
+      my $prj_name = @$i[0]."\n";
+      my $url = &get_protocol() . "://" . $hostname . "/" . $api_version . "/" . "all" . "?project=" . $prj_name;
+      $out .= "<a href='$url'>\n";
+      $out .= $prj_name."\n";
+      $out .= "</a>\n";
+    };
+    $out .= "</ol>\n";
+    $out .= &page_footer();
+
+  } else {
+    foreach my $i (@$res) {
+      $out .= @$i[0]."\n";
+    };
+  }
+
+  $r->print($out);
+}
+
+
+################################################################################
+sub add_project
+################################################################################
+{
+  my $what = shift;
+
+  wsyslog("info", "add $what");
+
+  my $query = "insert into project (id, name) values (null, ?)";
+  wsyslog('info', "add project " . $query);
+  &db_do2($query, $what);
+}
+
+################################################################################
+sub remove_project
+################################################################################
+{
+  my $project = shift;
+  my $prj_id = &resolve_project($project);
+
+  if (&project_image_count($prj_id)) {
+    wsyslog("info", "del $project $prj_id not empty");
+    $error_result = 412;
+    return;
+  }
+
+  my $query = "delete from project where id = ?";
+
+  wsyslog("info", "del $project $prj_id $query");
+
+  my $res = $dbh->do($query, undef, $prj_id) or do {
+    wsyslog("info", "500: remove_project($gp_id, $project): dbi error " . $DBI::errstr);
+    $error_result = 500;
+    return;
+  };
+
+}
+
+################################################################################
+sub project_image_count
+################################################################################
+{
+  my ($prj_id) = @_;
+  my $query = "select count(*) from prjgp where prj_id=?";
+
+  wsyslog("debug", "project_image_count id:$prj_id");
+
+  my $sth = $dbh->prepare($query)  or do {
+    wsyslog("info", "500: project_image_count($prj_id): prepare dbi error " . $DBI::errstr);
+    $error_result = 500;
+    return;
+  };
+  my $rv = $sth->execute($prj_id) or do {
+    wsyslog("info", "500: project_image_count($prj_id): execute dbi error " . $DBI::errstr);
+    $error_result = 500;
+    return;
+  };
+
+  my @row = $sth->fetchrow_array();
+  wsyslog("debug", "project_image_count" .  Dumper(\@row) . " " . $row[0]);
+  return $row[0];
+}
+
+################################################################################
+sub is_assigned
+################################################################################
+{
+  my ($gp_id, $prj_id) = @_;
+  my $query = "select * from prjgp where gp_id=? and prj_id=?";
+
+  wsyslog("debug", "is_assigned $gp_id, $prj_id");
+
+  my $sth = $dbh->prepare($query)  or do {
+    wsyslog("info", "500: is_assigned($gp_id, $prj_id): prepare dbi error " . $DBI::errstr);
+    $error_result = 500;
+    return;
+  };
+  my $rv = $sth->execute($gp_id, $prj_id) or do {
+    wsyslog("info", "500: is_assigned($gp_id, $prj_id): execute dbi error " . $DBI::errstr);
+    $error_result = 500;
+    return;
+  };
+
+  my @row = $sth->fetchrow_array();
+  return (scalar @row > 0);
+}
+
+################################################################################
+sub assign_to_project
+################################################################################
+{
+  my ($gp_id, $project) = @_;
+  my $prj_id = &resolve_project($project);
+  my $query = "insert into prjgp values (null, ?, ?)";
+
+  wsyslog("info", "trying assign_to_project($gp_id, $project)");
+
+  if (!defined $prj_id) {
+    wsyslog("info", "undefined ");
+    $error_result = 412;
+    return;
+  }
+
+  wsyslog("info", "assign $gp_id to $project id $prj_id ");
+
+  if (!&is_assigned($gp_id, $prj_id)) {
+    wsyslog("info", "doing ($gp_id, $project)");
+    my $res = $dbh->do($query, undef, $gp_id, $prj_id) or do {
+      wsyslog("info", "500: assign_to_project($gp_id, $project): dbi error " . $DBI::errstr);
+      $error_result = 500;
+      return;
+    };
+  } else {
+    wsyslog("info", "is_assigned, not doing anything ");
+  }
+}
+
+################################################################################
+sub remove_from_project
+################################################################################
+{
+  my ($gp_id, $project) = @_;
+  my $prj_id = &resolve_project($project);
+
+  wsyslog("info", "trying to reomve $gp_id from $project ($prj_id)");
+
+  if (!defined $prj_id) {
+    wsyslog("info", "undefined ");
+    $error_result = 412;
+    return;
+  }
+
+  my $query = "delete from prjgp where gp_id=? and prj_id=?";
+
+  my $res = $dbh->do($query, undef, $gp_id, $prj_id) or do {
+    wsyslog("info", "500: remove_from_project($gp_id, $project): dbi error " . $DBI::errstr);
+    $error_result = 500;
+    return;
+  };
+}
+
+################################################################################
+sub list_assigned
+################################################################################
+{
+  my ($project) = @_;
+  my $out = "";
+  my $query = "select guidepost.id, guidepost.url from  guidepost,prjgp where prjgp.prj_id=? and guidepost.id=prjgp.gp_id;";
+
+  $prj_id = &resolve_project($project);
+
+  wsyslog("info", "list_assigned prj_id:" . $prj_id);
+
+
+  my $res = $dbh->selectall_arrayref($query, undef, $prj_id) or do {
+    wsyslog("info", "list_assigned db error" . $DBI::errstr);
+    $out = "list_assigned: DB error";
+    $error_result = 500;
+    return 500;
+  };
+
+  foreach my $row (@$res) {
+    my ($id, $url) = @$row;
+    $out .=  "$id $url\n";
+  }
+
+  if ($OUTPUT_FORMAT eq "html") {
+    $r->print($out);
+  } elsif ($OUTPUT_FORMAT eq "json") {
+    $out = encode_json($res);
+    $r->print($out);
+  } else {
+    $r->print($out);
+  }
+
 }
 
 1;

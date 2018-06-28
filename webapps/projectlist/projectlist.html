@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Cache-control" content="no-cache, no-store, must-revalidate">
+  <title>Available projects</title>
+  <script src="https://code.jquery.com/jquery-1.10.2.js"></script>
+
+<script>
+function xxpost()
+{
+  term = $("#addinput").val();
+  alert(term);
+
+  var jqxhr = $.post( "http://api.openstreetmap.cz/table/projectlist", { add: term, time: "2pm" })
+  .done(function() {
+    alert( "second success" );
+  })
+  .fail(function() {
+    alert( "error" );
+  })
+  .always(function() {
+    alert( "finished" );
+  });
+}
+
+function xxdelete()
+{
+  term = $("#delinput").val();
+  alert(term);
+
+$.ajax({
+    url: 'http://api.openstreetmap.cz/table/projectlist',
+    method: 'DELETE',
+    data: { project: term},
+    success: function(result) {
+        // handle success
+    },
+    error: function(request,msg,error) {
+        // handle failure
+    }
+});}
+
+
+
+</script>
+
+</head>
+<body>
+
+<h1>Manage projects</h1>
+
+<h2> list of projects</h2>
+<script>
+$.get( "http://api.openstreetmap.cz/table/projectlist", function( data ) {
+ // alert( "Data Loaded: " + data );
+    $( "#resultget" ).empty().append(data);
+});
+</script>
+
+<div id="resultget"></div>
+ 
+
+<h2> add project</h2>
+
+<input id="addinput" type="text" name="add" placeholder="add project">
+<input type="button" value="add" onclick="xxpost()">
+
+<div id="result"></div>
+
+<h2>delete project</h2>
+
+<input id="delinput" type="text" name="add" placeholder="delete project">
+<input type="button" value="delete" onclick="xxdelete()">
+
+ 
+</body>
+</html>
+
+
+
+<script>
+</script>
