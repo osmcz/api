@@ -1,3 +1,0 @@
-User-Agent: *
-Disallow: /table/
-crawl-delay: 1000
